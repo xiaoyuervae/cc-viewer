@@ -97,6 +97,53 @@
   min-width: 0;
 }
 
+.codePane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.minimap {
+  width: 72px;
+  flex-shrink: 0;
+  position: relative;
+  border-left: 1px solid #262626;
+  background: #0f0f0f;
+  cursor: pointer;
+  user-select: none;
+}
+
+.minimapCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.minimapViewport {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 0;
+  height: 56px;
+  border: 1px solid rgba(128, 144, 178, 0.75);
+  background: rgba(95, 110, 145, 0.2);
+  border-radius: 3px;
+  pointer-events: none;
+  cursor: grab;
+}
+
+.codeCol {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.codeCol::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 .codeContent {
   padding: 0;
   font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;

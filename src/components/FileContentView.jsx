@@ -97,6 +97,7 @@ function formatFileSize(bytes) {
 }
 
 export default function FileContentView({ filePath, onClose }) {
+  const MINIMAP_VIEWPORT_HEIGHT = 56;
   const [content, setContent] = useState(null);
   const [error, setError] = useState(null);
   const [fileSize, setFileSize] = useState(0);
@@ -105,6 +106,105 @@ export default function FileContentView({ filePath, onClose }) {
   const lineNumRef = useRef(null);
   const codeScrollRef = useRef(null);
   const lineNumScrollRef = useRef(null);
+  const minimapRef = useRef(null);
+  const minimapCanvasRef = useRef(null);
+  const minimapViewportRef = useRef(null);
+  const lineCountRef = useRef(0);
+  const minimapDataRef = useRef([]);
+  const dragStateRef = useRef({ active: false, offsetY: 0 });
+
+  const computeMinimapData = (text) => {
+    const lines = text.split('\n');
+    lineCountRef.current = lines.length;
+    minimapDataRef.current = lines.map((line) => {
+      const len = line.trim().length;
+      return Math.min(1, len / 96);
+    });
+  };
+
+  const drawMinimap = () => {
+    const canvas = minimapCanvasRef.current;
+    const wrap = minimapRef.current;
+    if (!canvas || !wrap) return;
+    const dpr = window.devicePixelRatio || 1;
+    const width = wrap.clientWidth;
+    const height = wrap.clientHeight;
+    if (width <= 0 || height <= 0) return;
+
+    if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#0f0f0f';
+    ctx.fillRect(0, 0, width, height);
+
+    const data = minimapDataRef.current;
+    const count = lineCountRef.current;
+    if (!count || !data.length) return;
+
+    const innerPad = 4;
+    const avail = Math.max(4, width - innerPad * 2);
+    for (let i = 0; i < count; i += 1) {
+      const y = Math.floor((i / count) * height);
+      const intensity = data[i];
+      if (intensity < 0.06) continue;
+      const barWidth = Math.max(2, Math.floor(avail * intensity));
+      ctx.fillStyle = `rgba(146, 151, 179, ${0.2 + intensity * 0.45})`;
+      ctx.fillRect(innerPad, y, barWidth, 1);
+    }
+  };
+
+  const syncMinimapViewport = () => {
+    const codeEl = codeScrollRef.current;
+    const mapEl = minimapRef.current;
+    const viewportEl = minimapViewportRef.current;
+    if (!codeEl || !mapEl || !viewportEl) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = codeEl;
+    const mapHeight = mapEl.clientHeight;
+    if (scrollHeight <= 0 || mapHeight <= 0) return;
+
+    const viewportHeight = Math.min(mapHeight, MINIMAP_VIEWPORT_HEIGHT);
+    const maxTop = Math.max(0, mapHeight - viewportHeight);
+    const scrollRange = Math.max(1, scrollHeight - clientHeight);
+    const top = (scrollTop / scrollRange) * maxTop;
+    viewportEl.style.height = `${viewportHeight}px`;
+    viewportEl.style.transform = `translateY(${top}px)`;
+  };
+
+  const scrollByMinimap = (clientY, keepGrabOffset = false) => {
+    const mapEl = minimapRef.current;
+    const codeEl = codeScrollRef.current;
+    const viewportEl = minimapViewportRef.current;
+    if (!mapEl || !codeEl || !viewportEl) return;
+    const rect = mapEl.getBoundingClientRect();
+    const viewportHeight = viewportEl.offsetHeight || MINIMAP_VIEWPORT_HEIGHT;
+    const maxViewportTop = Math.max(1, rect.height - viewportHeight);
+    const rawTop = keepGrabOffset
+      ? (clientY - rect.top - dragStateRef.current.offsetY)
+      : (clientY - rect.top - viewportHeight / 2);
+    const viewportTop = Math.max(0, Math.min(maxViewportTop, rawTop));
+    const ratio = viewportTop / maxViewportTop;
+    const maxScroll = Math.max(0, codeEl.scrollHeight - codeEl.clientHeight);
+    codeEl.scrollTop = ratio * maxScroll;
+  };
+
+  const onMinimapMouseDown = (e) => {
+    const viewportEl = minimapViewportRef.current;
+    if (!viewportEl) return;
+    const onViewport = viewportEl.contains(e.target);
+    dragStateRef.current.active = true;
+    dragStateRef.current.offsetY = onViewport
+      ? (e.clientY - viewportEl.getBoundingClientRect().top)
+      : (viewportEl.offsetHeight || MINIMAP_VIEWPORT_HEIGHT) / 2;
+    scrollByMinimap(e.clientY, true);
+    e.preventDefault();
+  };
 
   useEffect(() => {
     mounted.current = true;
@@ -126,6 +226,7 @@ export default function FileContentView({ filePath, onClose }) {
         if (mounted.current) {
           setContent(data.content);
           setFileSize(data.size);
+          computeMinimapData(data.content);
         }
       })
       .catch((err) => {
@@ -174,10 +275,42 @@ export default function FileContentView({ filePath, onClose }) {
     const codeEl = codeScrollRef.current;
     const lineEl = lineNumScrollRef.current;
     if (!codeEl || !lineEl) return;
-    const onScroll = () => { lineEl.scrollTop = codeEl.scrollTop; };
+    const onScroll = () => {
+      lineEl.scrollTop = codeEl.scrollTop;
+      syncMinimapViewport();
+    };
     codeEl.addEventListener('scroll', onScroll);
+    onScroll();
     return () => codeEl.removeEventListener('scroll', onScroll);
   });
+
+  useEffect(() => {
+    if (!content) return;
+    const onResize = () => {
+      drawMinimap();
+      syncMinimapViewport();
+    };
+    drawMinimap();
+    syncMinimapViewport();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [content]);
+
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!dragStateRef.current.active) return;
+      scrollByMinimap(e.clientY, true);
+    };
+    const onMouseUp = () => {
+      dragStateRef.current.active = false;
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
 
   return (
     <div className={styles.fileContentView}>
@@ -202,8 +335,19 @@ export default function FileContentView({ filePath, onClose }) {
             <div className={styles.lineNumberCol} ref={lineNumScrollRef}>
               <div ref={lineNumRef}></div>
             </div>
-            <div className={styles.codeCol} ref={codeScrollRef}>
-              <pre className={styles.codeContent}><code ref={codeRef}></code></pre>
+            <div className={styles.codePane}>
+              <div className={styles.codeCol} ref={codeScrollRef}>
+                <pre className={styles.codeContent}><code ref={codeRef}></code></pre>
+              </div>
+              <div
+                className={styles.minimap}
+                ref={minimapRef}
+                onMouseDown={onMinimapMouseDown}
+                title={t('ui.fileContent')}
+              >
+                <canvas className={styles.minimapCanvas} ref={minimapCanvasRef} />
+                <div className={styles.minimapViewport} ref={minimapViewportRef}></div>
+              </div>
             </div>
           </div>
         )}
