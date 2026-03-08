@@ -143,6 +143,37 @@
   font-weight: bold;
 }
 
+.mobileLoadingOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  gap: 16px;
+}
+
+.mobileLoadingSpinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: #4f8cff;
+  border-radius: 50%;
+  animation: mobileSpin 0.8s linear infinite;
+}
+
+@keyframes mobileSpin {
+  to { transform: rotate(360deg); }
+}
+
+.mobileLoadingLabel {
+  color: #888;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 .footer {
   height: 18px;
   background: #000;
@@ -303,4 +334,59 @@
   display: flex;
   flex-direction: column;
   zoom: 0.6;
+}
+
+.mobileMenuBtn {
+  background: none;
+  border: none;
+  color: #aaa;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.mobileMenuBtn:active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mobileMenuOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+
+.mobileMenuDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  min-width: 160px;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.mobileMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  color: #ddd;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+
+.mobileMenuItem:active {
+  background: rgba(255, 255, 255, 0.1);
 }

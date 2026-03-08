@@ -1,6 +1,7 @@
 import React from 'react';
 import { ConfigProvider, Layout, theme, Modal, List, Tag, Spin, Button, Checkbox, Badge, message } from 'antd';
 import { FileTextOutlined, UploadOutlined, MessageOutlined, BranchesOutlined } from '@ant-design/icons';
+import { isMobile } from './env';
 import AppHeader from './components/AppHeader';
 import RequestList from './components/RequestList';
 import DetailPanel from './components/DetailPanel';
@@ -54,6 +55,7 @@ class App extends React.Component {
       cliMode: false,
       terminalVisible: true,
       workspaceMode: false,
+      mobileMenuVisible: false,
     };
     this.eventSource = null;
     this._autoSelectTimer = null;
@@ -868,12 +870,22 @@ class App extends React.Component {
     }
 
     // CLI 模式 + 手机端：只显示终端，顶部显示监控状态
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     if (this.state.cliMode && isMobile) {
       return (
         <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', background: '#000' }}>
-          <div style={{ padding: '10px 12px', background: '#111', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ padding: '10px 12px', background: '#111', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, position: 'relative' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                className={styles.mobileMenuBtn}
+                onClick={() => this.setState(prev => ({ mobileMenuVisible: !prev.mobileMenuVisible }))}
+                aria-label={t('ui.mobileMenu')}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              </button>
               <Badge status="processing" color="green" />
               <span style={{ fontSize: 12, color: '#aaa' }}>{t('ui.liveMonitoring')}{this.state.projectName ? `: ${this.state.projectName}` : ''}</span>
             </div>
@@ -897,6 +909,25 @@ class App extends React.Component {
                 {this.state.mobileChatVisible ? t('ui.mobileChatExit') : t('ui.mobileChatBrowse')}
               </Button>
             </div>
+            {this.state.mobileMenuVisible && (
+              <>
+                <div className={styles.mobileMenuOverlay} onClick={() => this.setState({ mobileMenuVisible: false })} />
+                <div className={styles.mobileMenuDropdown}>
+                  <button
+                    className={styles.mobileMenuItem}
+                    onClick={() => { this.setState({ mobileMenuVisible: false }); this.handleImportLocalLogs(); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                    {t('ui.logManagement')}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             <TerminalPanel />
@@ -907,8 +938,9 @@ class App extends React.Component {
             </div>
             <div className={`${styles.mobileChatOverlay} ${this.state.mobileChatVisible ? styles.mobileChatOverlayVisible : ''}`}>
               {fileLoading && (
-                <div className={styles.loadingOverlay}>
-                  <div className={styles.loadingText}>Loading...({fileLoadingCount})</div>
+                <div className={styles.mobileLoadingOverlay}>
+                  <div className={styles.mobileLoadingSpinner} />
+                  <div className={styles.mobileLoadingLabel}>{t('ui.loadingChat')}{fileLoadingCount > 0 ? ` (${fileLoadingCount})` : ''}</div>
                 </div>
               )}
               <ConfigProvider theme={{ algorithm: theme.darkAlgorithm, token: { colorBgContainer: '#111', colorBgLayout: '#0a0a0a', colorBgElevated: '#1a1a1a', colorBorder: '#2a2a2a' } }}>
@@ -929,6 +961,79 @@ class App extends React.Component {
               </ConfigProvider>
             </div>
           </div>
+          <ConfigProvider theme={{ algorithm: theme.darkAlgorithm, token: { colorBgContainer: '#111', colorBgLayout: '#0a0a0a', colorBgElevated: '#1a1a1a', colorBorder: '#2a2a2a' } }}>
+            <Modal
+              title={t('ui.importLocalLogs')}
+              open={this.state.importModalVisible}
+              onCancel={this.handleCloseImportModal}
+              footer={null}
+              width="95vw"
+              styles={{ body: { maxHeight: '60vh', overflow: 'auto' } }}
+            >
+              <div className={styles.modalActions}>
+                <Button
+                  size="small"
+                  type={this.state.selectedLogs.size > 1 ? 'primary' : 'default'}
+                  disabled={this.state.selectedLogs.size < 2}
+                  onClick={this.handleMergeLogs}
+                >
+                  {t('ui.mergeLogs')}
+                </Button>
+              </div>
+              {this.state.localLogsLoading ? (
+                <div className={styles.spinCenter}><Spin /></div>
+              ) : (() => {
+                const currentLogs = this.state.localLogs[this.state.currentProject];
+                if (!currentLogs || currentLogs.length === 0) {
+                  return (
+                    <div className={styles.emptyCenter}>
+                      {t('ui.noLogs')}
+                    </div>
+                  );
+                }
+                return (
+                  <div className={styles.logListContainer}>
+                    <List
+                      size="small"
+                      dataSource={currentLogs}
+                      renderItem={(log) => (
+                      <List.Item
+                        className={styles.logListItem}
+                        onClick={() => {
+                          const checked = !this.state.selectedLogs.has(log.file);
+                          this.handleToggleLogSelect(log.file, checked);
+                        }}
+                      >
+                        <div className={styles.logItemRow}>
+                          <span>
+                            <Checkbox
+                              className={styles.logCheckbox}
+                              checked={this.state.selectedLogs.has(log.file) || false}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                this.handleToggleLogSelect(log.file, e.target.checked);
+                              }}
+                            />
+                            <FileTextOutlined className={styles.logFileIcon} />
+                            <span className={styles.logFileName}>{this.formatTimestamp(log.timestamp)}</span>
+                          </span>
+                          <span>
+                            <Tag style={{ background: '#0a0a0a', border: '1px solid #444', color: '#999' }}>{log.turns || 0} {t('ui.turns')}</Tag>
+                            <Tag style={{ background: '#0a0a0a', border: '1px solid #444', color: '#999' }}>{this.formatSize(log.size)}</Tag>
+                            <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); this.handleOpenLogFile(log.file); }}>
+                              {t('ui.openLog')}
+                            </Button>
+                          </span>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                  </div>
+                );
+              })()}
+            </Modal>
+          </ConfigProvider>
         </div>
       );
     }

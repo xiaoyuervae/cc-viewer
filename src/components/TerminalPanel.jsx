@@ -6,9 +6,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import '@xterm/xterm/css/xterm.css';
 import { t } from '../i18n';
+import { isMobile } from '../env';
 import styles from './TerminalPanel.module.css';
-
-const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
 // 虚拟按键定义：label 显示文字，seq 为发送到终端的转义序列
 const VIRTUAL_KEYS = [
