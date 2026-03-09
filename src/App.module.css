@@ -490,3 +490,62 @@
 .mobileSettingsOverlayVisible {
   transform: translateX(0);
 }
+
+.mobilePromptOverlay {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+  z-index: 100;
+  background: #0a0a0a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobilePromptOverlayVisible {
+  transform: translateX(0);
+}
+
+.mobilePromptBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mobilePromptList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px;
+}
+
+.mobilePromptItem {
+  padding: 12px 0;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.mobilePromptTimestamp {
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 8px;
+  font-family: ui-monospace, monospace;
+}
+
+.mobilePromptCard {
+  margin: 4px 0;
+  background: #141414;
+  border-radius: 6px;
+  border: 1px solid #303030;
+  padding: 10px 14px;
+}
+
+.mobilePromptPreText {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #d9d9d9;
+  margin: 4px 0;
+}

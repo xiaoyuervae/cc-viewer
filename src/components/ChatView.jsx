@@ -16,7 +16,7 @@ import styles from './ChatView.module.css';
 const { Text } = Typography;
 
 const QUEUE_THRESHOLD = 20;
-const MOBILE_ITEM_LIMIT = 300;
+const MOBILE_ITEM_LIMIT = 240;
 const MOBILE_LOAD_MORE_STEP = 100;
 
 function randomInterval() {

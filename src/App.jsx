@@ -13,7 +13,7 @@ import MobileStats from './components/MobileStats';
 import WorkspaceList from './components/WorkspaceList';
 import { t, getLang, setLang } from './i18n';
 import { formatTokenCount, filterRelevantRequests, findPrevMainAgentTimestamp } from './utils/helpers';
-import { isMainAgent } from './utils/contentFilter';
+import { isMainAgent, isSystemText, classifyUserContent } from './utils/contentFilter';
 import { classifyRequest } from './utils/requestType';
 import styles from './App.module.css';
 import { apiUrl } from './utils/apiUrl';
@@ -60,6 +60,7 @@ class App extends React.Component {
       mobileMenuVisible: false,
       mobileLogMgmtVisible: false,
       mobileSettingsVisible: false,
+      mobilePromptVisible: false,
     };
     this.eventSource = null;
     this._autoSelectTimer = null;
@@ -733,6 +734,146 @@ class App extends React.Component {
     }).catch(() => { });
   };
 
+  // Extract user prompts from requests (for mobile prompt viewer)
+  // 命令相关的标签集合，已作为独立 prompt 输出，在 segments 中直接丢弃
+  static COMMAND_TAGS = new Set([
+    'command-name', 'command-message', 'command-args',
+    'local-command-caveat', 'local-command-stdout',
+  ]);
+
+  // 将一段文本拆分为普通文本和 XML 标签片段（可折叠）
+  static parseSegments(text) {
+    const segments = [];
+    // 匹配所有成对的 XML 标签: <tag-name ...>...</tag-name>
+    const regex = /<([a-zA-Z_][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g;
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const before = text.slice(lastIndex, match.index).trim();
+      if (before) segments.push({ type: 'text', content: before });
+      const tagName = match[1];
+      lastIndex = match.index + match[0].length;
+      // 命令相关标签直接跳过
+      if (App.COMMAND_TAGS.has(tagName)) continue;
+      // 提取标签内的内容（去掉外层开闭标签）
+      const innerRegex = new RegExp(`^<${tagName}(?:\\s[^>]*)?>([\\s\\S]*)<\\/${tagName}>$`);
+      const innerMatch = match[0].match(innerRegex);
+      const content = innerMatch ? innerMatch[1].trim() : match[0].trim();
+      segments.push({ type: 'system', content, label: tagName });
+    }
+    const after = text.slice(lastIndex).trim();
+    if (after) segments.push({ type: 'text', content: after });
+    return segments;
+  }
+
+  // 从消息列表中提取用户文本
+  static extractUserTexts(messages) {
+    const userMsgs = [];   // 纯用户文本（不含系统标签），用于去重
+    const fullTexts = [];  // 完整文本（含系统标签），用于展示
+    let slashCmd = null;
+    for (const msg of messages) {
+      if (msg.role !== 'user') continue;
+      if (typeof msg.content === 'string') {
+        const text = msg.content.trim();
+        if (!text) continue;
+        if (!isSystemText(text)) {
+          if (/^Implement the following plan:/i.test(text)) continue;
+          userMsgs.push(text);
+          fullTexts.push(text);
+        }
+      } else if (Array.isArray(msg.content)) {
+        const { commands, textBlocks } = classifyUserContent(msg.content);
+        // 取最后一个 slash command（与之前行为一致）
+        if (commands.length > 0) {
+          slashCmd = commands[commands.length - 1];
+        }
+        // 过滤掉 plan prompt
+        const userParts = [];
+        for (const b of textBlocks) {
+          if (/^Implement the following plan:/i.test((b.text || '').trim())) continue;
+          userParts.push(b.text.trim());
+        }
+        // 收集完整文本用于 context 视图
+        const allParts = msg.content
+          .filter(b => b.type === 'text' && b.text?.trim())
+          .map(b => b.text.trim());
+        if (userParts.length > 0) {
+          userMsgs.push(userParts.join('\n'));
+          fullTexts.push(allParts.join('\n'));
+        }
+      }
+    }
+    return { userMsgs, fullTexts, slashCmd };
+  }
+
+  extractUserPrompts(requests) {
+    const prompts = [];
+    const seen = new Set();
+    let prevSlashCmd = null;
+    const mainAgentRequests = requests.filter(r => isMainAgent(r));
+
+    for (let ri = 0; ri < mainAgentRequests.length; ri++) {
+      const req = mainAgentRequests[ri];
+      const messages = req.body?.messages || [];
+      const timestamp = req.timestamp || '';
+      const { userMsgs, fullTexts, slashCmd } = App.extractUserTexts(messages);
+
+      // 斜杠命令去重
+      if (slashCmd && slashCmd !== '/compact' && slashCmd !== prevSlashCmd) {
+        prompts.push({ type: 'prompt', segments: [{ type: 'text', content: slashCmd }], timestamp });
+      }
+      prevSlashCmd = slashCmd;
+
+      // 逐条检查用户消息，用内容哈希去重
+      for (let i = 0; i < userMsgs.length; i++) {
+        const key = userMsgs[i];
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const raw = fullTexts[i] || key;
+        prompts.push({ type: 'prompt', segments: App.parseSegments(raw), timestamp });
+      }
+    }
+    return prompts;
+  }
+
+  // Render original prompt (mobile version)
+  renderOriginalPrompt(p) {
+    const textSegments = p.segments.filter(seg => seg.type === 'text');
+    if (textSegments.length === 0) return null;
+    return (
+      <div className={styles.mobilePromptCard}>
+        {textSegments.map((seg, j) => (
+          <pre key={j} className={styles.mobilePromptPreText}>{seg.content}</pre>
+        ))}
+      </div>
+    );
+  }
+
+  // Export prompts to .txt file
+  handleExportPromptsTxt = (prompts) => {
+    if (!prompts || prompts.length === 0) return;
+    const blocks = [];
+    for (const p of prompts) {
+      const lines = [];
+      const ts = p.timestamp ? new Date(p.timestamp).toLocaleString() : '';
+      if (ts) lines.push(`${ts}:\n`);
+      // 只输出纯文本 segments，跳过 system 标签
+      const textParts = (p.segments || [])
+        .filter(seg => seg.type === 'text')
+        .map(seg => seg.content);
+      if (textParts.length > 0) lines.push(textParts.join('\n'));
+      blocks.push(lines.join('\n'));
+    }
+    if (blocks.length === 0) return;
+    const blob = new Blob([blocks.join('\n\n\n\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `user-prompts-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   handleTabChange = (key) => {
     this.setState({ currentTab: key });
   };
@@ -1106,7 +1247,7 @@ class App extends React.Component {
                 <div className={styles.mobileMenuDropdown}>
                   <button
                     className={styles.mobileMenuItem}
-                    onClick={() => { this.setState({ mobileMenuVisible: false, mobileLogMgmtVisible: true, mobileStatsVisible: false, mobileGitDiffVisible: false, mobileChatVisible: false, mobileSettingsVisible: false }); this.handleImportLocalLogs(); }}
+                    onClick={() => { this.setState({ mobileMenuVisible: false, mobileLogMgmtVisible: true, mobileStatsVisible: false, mobileGitDiffVisible: false, mobileChatVisible: false, mobileSettingsVisible: false, mobilePromptVisible: false }); this.handleImportLocalLogs(); }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -1118,7 +1259,7 @@ class App extends React.Component {
                   </button>
                   <button
                     className={styles.mobileMenuItem}
-                    onClick={() => { this.setState({ mobileMenuVisible: false, mobileStatsVisible: true, mobileGitDiffVisible: false, mobileChatVisible: false, mobileLogMgmtVisible: false, mobileSettingsVisible: false }); }}
+                    onClick={() => { this.setState({ mobileMenuVisible: false, mobileStatsVisible: true, mobileGitDiffVisible: false, mobileChatVisible: false, mobileLogMgmtVisible: false, mobileSettingsVisible: false, mobilePromptVisible: false }); }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect x="3" y="3" width="7" height="7" />
@@ -1130,13 +1271,26 @@ class App extends React.Component {
                   </button>
                   <button
                     className={styles.mobileMenuItem}
-                    onClick={() => { this.setState({ mobileMenuVisible: false, mobileSettingsVisible: true, mobileStatsVisible: false, mobileGitDiffVisible: false, mobileChatVisible: false, mobileLogMgmtVisible: false }); }}
+                    onClick={() => { this.setState({ mobileMenuVisible: false, mobileSettingsVisible: true, mobileStatsVisible: false, mobileGitDiffVisible: false, mobileChatVisible: false, mobileLogMgmtVisible: false, mobilePromptVisible: false }); }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="3" />
                       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                     </svg>
                     {t('ui.settings')}
+                  </button>
+                  <button
+                    className={styles.mobileMenuItem}
+                    onClick={() => { this.setState({ mobileMenuVisible: false, mobilePromptVisible: true, mobileStatsVisible: false, mobileGitDiffVisible: false, mobileChatVisible: false, mobileLogMgmtVisible: false, mobileSettingsVisible: false }); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="12" y1="18" x2="12" y2="12" />
+                      <line x1="12" y1="12" x2="9" y2="15" />
+                      <line x1="12" y1="12" x2="15" y2="15" />
+                    </svg>
+                    {t('ui.userPrompt')}
                   </button>
                 </div>
               </>
@@ -1261,6 +1415,57 @@ class App extends React.Component {
                     onChange={this.handleExpandThinkingChange}
                   />
                 </div>
+              </div>
+            </div>
+            <div className={`${styles.mobilePromptOverlay} ${this.state.mobilePromptVisible ? styles.mobilePromptOverlayVisible : ''}`}>
+              <div className={styles.mobileLogMgmtHeader}>
+                <span className={styles.mobileLogMgmtTitle}>{t('ui.userPrompt')}</span>
+                <button className={styles.mobileLogMgmtClose} onClick={() => this.setState({ mobilePromptVisible: false })}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div className={styles.mobilePromptBody}>
+                {(() => {
+                  const prompts = this.extractUserPrompts(filteredRequests);
+                  if (prompts.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', color: '#666', padding: '40px 20px', fontSize: 14 }}>
+                        {t('ui.noPrompt')}
+                      </div>
+                    );
+                  }
+                  return (
+                    <>
+                      <div style={{ padding: '8px 12px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 13, color: '#888' }}>
+                          {prompts.length} {t('ui.promptCountUnit')}
+                        </span>
+                        <Button
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={() => this.handleExportPromptsTxt(prompts)}
+                        >
+                          {t('ui.exportPromptsTxt')}
+                        </Button>
+                      </div>
+                      <div className={styles.mobilePromptList}>
+                        {prompts.map((p, i) => (
+                          <div key={i} className={styles.mobilePromptItem}>
+                            {p.timestamp && (
+                              <div className={styles.mobilePromptTimestamp}>
+                                {new Date(p.timestamp).toLocaleString()}
+                              </div>
+                            )}
+                            {this.renderOriginalPrompt(p)}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

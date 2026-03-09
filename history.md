@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.10 (2026-03-09)
+
+- Feat: mobile user prompt viewer — add "用户Prompt" menu item in mobile hamburger menu, fully aligned with PC's original mode implementation
+- Feat: complete prompt extraction logic — replicate AppHeader's parseSegments, extractUserTexts, and extractUserPrompts methods for mobile
+- Feat: export prompts to .txt — mobile version supports exporting user prompts with timestamps
+- Improve: mobile chat list limit adjusted from 300 to 240 items for better performance
+
 ## 1.5.9 (2026-03-09)
 
 - Fix: DiffView restructured from single table to fixed gutter + scrollable code layout — line numbers and +/- prefix no longer shift on mobile horizontal scroll
