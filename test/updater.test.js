@@ -21,7 +21,7 @@ function backupCache() {
     if (existsSync(CACHE_FILE)) {
       savedCache = readFileSync(CACHE_FILE, 'utf-8');
     }
-  } catch {}
+  } catch { }
 }
 
 function restoreCache() {
@@ -29,7 +29,7 @@ function restoreCache() {
     if (savedCache !== null) {
       writeFileSync(CACHE_FILE, savedCache);
     }
-  } catch {}
+  } catch { }
   savedCache = null;
 }
 
@@ -39,7 +39,7 @@ function backupSettings() {
     if (settingsExisted) {
       savedSettings = readFileSync(CC_SETTINGS_FILE, 'utf-8');
     }
-  } catch {}
+  } catch { }
 }
 
 function restoreSettings() {
@@ -49,7 +49,7 @@ function restoreSettings() {
     } else if (!settingsExisted && existsSync(CC_SETTINGS_FILE)) {
       unlinkSync(CC_SETTINGS_FILE);
     }
-  } catch {}
+  } catch { }
   savedSettings = null;
   settingsExisted = false;
 }
@@ -64,7 +64,7 @@ function enableAutoUpdates() {
     delete settings.autoUpdates;
     mkdirSync(join(homedir(), '.claude'), { recursive: true });
     writeFileSync(CC_SETTINGS_FILE, JSON.stringify(settings, null, 2));
-  } catch {}
+  } catch { }
 }
 
 // ─── checkAndUpdate: disabled via env ───
@@ -159,6 +159,7 @@ describe('checkAndUpdate — skipped', () => {
 
 describe('checkAndUpdate — fetch', () => {
   let origEnv;
+  let origFetch;
 
   beforeEach(() => {
     origEnv = process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
@@ -166,6 +167,7 @@ describe('checkAndUpdate — fetch', () => {
     backupSettings();
     enableAutoUpdates();
     backupCache();
+    origFetch = globalThis.fetch;
   });
 
   afterEach(() => {
@@ -176,6 +178,7 @@ describe('checkAndUpdate — fetch', () => {
     } else {
       process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = origEnv;
     }
+    globalThis.fetch = origFetch;
   });
 
   it('fetches registry and returns a valid status', async () => {
@@ -183,19 +186,23 @@ describe('checkAndUpdate — fetch', () => {
     mkdirSync(CACHE_DIR, { recursive: true });
     writeFileSync(CACHE_FILE, JSON.stringify({ lastCheck: 0 }));
 
-    const result = await checkAndUpdate();
-    // Could be 'latest', 'updated', 'major_available', or 'error' (network issue)
-    assert.ok(
-      ['latest', 'updated', 'major_available', 'error'].includes(result.status),
-      `unexpected status: ${result.status}`
-    );
-    assert.ok(result.currentVersion);
+    const pkgPath = join(import.meta.dirname, '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    const [maj, min, pat] = pkg.version.split('.').map(Number);
+    const remote = `${maj}.${min}.${pat + 1}`;
 
-    if (result.status !== 'error') {
-      assert.ok(result.remoteVersion, 'should have remoteVersion on success');
-      // Verify version format
-      assert.match(result.remoteVersion, /^\d+\.\d+\.\d+/);
-    }
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { 'dist-tags': { latest: remote } };
+      },
+    });
+
+    const result = await checkAndUpdate({ fetchImpl: globalThis.fetch, dryRun: true, execImpl: () => { } });
+    assert.equal(result.status, 'updated');
+    assert.equal(result.remoteVersion, remote);
+    assert.equal(result.currentVersion, pkg.version);
   });
 
   it('currentVersion matches package.json', async () => {
