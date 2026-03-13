@@ -367,6 +367,12 @@ class App extends React.Component {
           selectedIndex: null,
         });
       });
+      this.eventSource.addEventListener('context_window', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          this.setState({ contextWindow: data });
+        } catch { }
+      });
       this.eventSource.onerror = () => console.error('SSE连接错误');
     } catch (error) {
       console.error('EventSource初始化失败:', error);
@@ -1554,6 +1560,7 @@ class App extends React.Component {
               terminalVisible={this.state.terminalVisible}
               onToggleTerminal={() => this.setState(prev => ({ terminalVisible: !prev.terminalVisible }))}
               onReturnToWorkspaces={this.state.cliMode ? this.handleReturnToWorkspaces : null}
+              contextWindow={this.state.contextWindow}
             />
           </Layout.Header>
 

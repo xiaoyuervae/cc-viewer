@@ -2,7 +2,7 @@ import React from 'react';
 import { Space, Tag, Button, Badge, Typography, Dropdown, Popover, Modal, Collapse, Drawer, Switch, Tabs, Spin, Tooltip, Input, Table, message } from 'antd';
 import { MessageOutlined, FileTextOutlined, ImportOutlined, DownOutlined, DashboardOutlined, ExportOutlined, DownloadOutlined, SettingOutlined, BarChartOutlined, CodeOutlined, GlobalOutlined, CopyOutlined, ApiOutlined, DeleteOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import { QRCodeCanvas } from 'qrcode.react';
-import { formatTokenCount, computeTokenStats, computeCacheRebuildStats, computeToolUsageStats, computeSkillUsageStats } from '../utils/helpers';
+import { formatTokenCount, computeTokenStats, computeCacheRebuildStats, computeToolUsageStats, computeSkillUsageStats, getModelMaxTokens } from '../utils/helpers';
 import { isSystemText, classifyUserContent, isMainAgent } from '../utils/contentFilter';
 import { classifyRequest, formatRequestTag } from '../utils/requestType';
 import { t, getLang, setLang } from '../i18n';
@@ -791,7 +791,7 @@ class AppHeader extends React.Component {
   }
 
   render() {
-    const { requestCount, requests = [], viewMode, cacheType, onToggleViewMode, onImportLocalLogs, onLangChange, isLocalLog, localLogFile, projectName, collapseToolResults, onCollapseToolResultsChange, expandThinking, onExpandThinkingChange, expandDiff, onExpandDiffChange, filterIrrelevant, onFilterIrrelevantChange, updateInfo, onDismissUpdate, cliMode, terminalVisible, onToggleTerminal, onReturnToWorkspaces } = this.props;
+    const { requestCount, requests = [], viewMode, cacheType, onToggleViewMode, onImportLocalLogs, onLangChange, isLocalLog, localLogFile, projectName, collapseToolResults, onCollapseToolResultsChange, expandThinking, onExpandThinkingChange, expandDiff, onExpandDiffChange, filterIrrelevant, onFilterIrrelevantChange, updateInfo, onDismissUpdate, cliMode, terminalVisible, onToggleTerminal, onReturnToWorkspaces, contextWindow } = this.props;
     const { countdownText } = this.state;
 
     const menuItems = [
@@ -929,11 +929,50 @@ class AppHeader extends React.Component {
                   : liveDot}
               </span>
             );
-            const liveTag = (
-              <Tag color={isLocalLog ? undefined : 'green'} className={`${styles.liveTag} ${isLocalLog ? styles.liveTagHistory : ''}`}>
+            // 计算上下文使用率：距离 auto-compact 触发点的进度
+            // auto-compact 在 ~83.5% 时触发（扣除 16.5% buffer）
+            // 将 used_percentage 映射到 0~83.5% → 0~100%
+            let contextPercent = 0;
+            if (!isLocalLog) {
+              if (contextWindow?.used_percentage != null) {
+                // 精确模式：statusLine 推送的 used_percentage
+                contextPercent = Math.min(100, Math.max(0, Math.round(contextWindow.used_percentage / 83.5 * 100)));
+              } else if (requests.length > 0) {
+                // fallback：用最后一个 MainAgent 的 total input 估算
+                const getTotal = (req) => {
+                  const u = req.response?.body?.usage;
+                  return (u?.input_tokens || 0) + (u?.cache_creation_input_tokens || 0) + (u?.cache_read_input_tokens || 0);
+                };
+                for (let i = requests.length - 1; i >= 0; i--) {
+                  if (isMainAgent(requests[i]) && requests[i].response?.body?.usage) {
+                    const total = getTotal(requests[i]);
+                    const maxTokens = contextWindow?.context_window_size || getModelMaxTokens(requests[i].body?.model);
+                    const usable = maxTokens * 0.835;
+                    if (usable > 0 && total > 0) {
+                      contextPercent = Math.min(100, Math.max(0, Math.round(total / usable * 100)));
+                    }
+                    break;
+                  }
+                }
+              }
+            }
+            const ctxColor = contextPercent >= 80 ? '#ff4d4f' : contextPercent >= 60 ? '#faad14' : '#52c41a';
+
+            const liveTag = isLocalLog ? (
+              <Tag className={`${styles.liveTag} ${styles.liveTagHistory}`}>
                 {dotEl}
-                <span className={styles.liveTagText}>{isLocalLog ? t('ui.historyLog', { file: localLogFile }) : (t('ui.liveMonitoring') + (projectName ? `:${projectName}` : ''))}</span>
+                <span className={styles.liveTagText}>{t('ui.historyLog', { file: localLogFile })}</span>
               </Tag>
+            ) : (
+              <span className={styles.liveTag} style={{ borderColor: ctxColor, color: ctxColor }}>
+                <span className={styles.liveTagFill} style={{ width: `${contextPercent}%`, backgroundColor: ctxColor }} />
+                <span className={styles.liveTagContent}>
+                  {dotEl}
+                  <span className={styles.liveTagText}>
+                    {t('ui.liveMonitoring')}{projectName ? `:${projectName}` : ''}
+                  </span>
+                </span>
+              </span>
             );
             if (hasInflight) {
               const popContent = (

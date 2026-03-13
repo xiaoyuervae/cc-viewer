@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, realpathSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -136,18 +136,28 @@ function installShellHook(isNative) {
 }
 
 function removeShellHook() {
+  // 扫描所有可能的 shell 配置文件，清理所有遗留 hook
   const configPath = getShellConfigPath();
-  try {
-    if (!existsSync(configPath)) return { path: configPath, status: 'not_found' };
-    const content = readFileSync(configPath, 'utf-8');
-    if (!content.includes(SHELL_HOOK_START)) return { path: configPath, status: 'clean' };
-    const regex = new RegExp(`\\n?${SHELL_HOOK_START}[\\s\\S]*?${SHELL_HOOK_END}\\n?`, 'g');
-    const newContent = content.replace(regex, '\n');
-    writeFileSync(configPath, newContent);
-    return { path: configPath, status: 'removed' };
-  } catch (err) {
-    return { path: configPath, status: 'error', error: err.message };
+  const allPaths = new Set([configPath]);
+  const home = homedir();
+  for (const f of ['.zshrc', '.zprofile', '.bashrc', '.bash_profile', '.profile']) {
+    allPaths.add(resolve(home, f));
   }
+  let lastResult = { path: configPath, status: 'clean' };
+  for (const p of allPaths) {
+    try {
+      if (!existsSync(p)) continue;
+      const content = readFileSync(p, 'utf-8');
+      if (!content.includes(SHELL_HOOK_START)) continue;
+      const regex = new RegExp(`\\n?${SHELL_HOOK_START}[\\s\\S]*?${SHELL_HOOK_END}\\n?`, 'g');
+      const newContent = content.replace(regex, '\n');
+      writeFileSync(p, newContent);
+      lastResult = { path: p, status: 'removed' };
+    } catch (err) {
+      lastResult = { path: p, status: 'error', error: err.message };
+    }
+  }
+  return lastResult;
 }
 
 function injectCliJs() {
@@ -388,7 +398,7 @@ const args = process.argv.slice(2);
 
 // ccv 自有命令判断
 const isLogger = args.includes('-logger');
-const isUninstall = args.includes('--uninstall');
+const isUninstall = args.includes('--uninstall') || args.includes('-uninstall');
 const isHelp = args.includes('--help') || args.includes('-h') || args[0] === 'help';
 const isVersion = args.includes('--v') || args.includes('--version') || args.includes('-v');
 
@@ -426,6 +436,30 @@ if (isUninstall) {
   } else {
     console.log(t('cli.uninstall.hookFail', { error: shellResult.error }));
   }
+
+  // 清理 statusLine 配置和脚本（兼容历史版本遗留）
+  try {
+    const settingsPath = resolve(homedir(), '.claude', 'settings.json');
+    if (existsSync(settingsPath)) {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+      if (settings.statusLine?.command?.includes('ccv-statusline')) {
+        delete settings.statusLine;
+        writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+        console.log('Cleaned statusLine config from settings.json');
+      }
+    }
+    const ccvScript = resolve(homedir(), '.claude', 'ccv-statusline.sh');
+    if (existsSync(ccvScript)) {
+      unlinkSync(ccvScript);
+      console.log('Removed ccv-statusline.sh');
+    }
+    // 清理 context-window.json
+    const ctxFile = resolve(homedir(), '.claude', 'context-window.json');
+    if (existsSync(ctxFile)) {
+      unlinkSync(ctxFile);
+    }
+  } catch { }
+
   console.log(t('cli.uninstall.reloadShell'));
   console.log(t('cli.uninstall.done'));
   process.exit(0);

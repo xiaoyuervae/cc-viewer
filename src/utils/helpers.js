@@ -1,5 +1,21 @@
 import { isSkillText, isMainAgent } from './contentFilter.js';
 
+const MODEL_CONTEXT_SIZES = [
+  { match: /claude/i, tokens: 200000 },
+  { match: /gpt-4o|o1|o3|o4/i, tokens: 128000 },
+  { match: /gpt-4/i, tokens: 128000 },
+  { match: /gpt-3/i, tokens: 16000 },
+  { match: /deepseek/i, tokens: 128000 },
+];
+
+export function getModelMaxTokens(modelName) {
+  if (!modelName) return 200000;
+  for (const entry of MODEL_CONTEXT_SIZES) {
+    if (entry.match.test(modelName)) return entry.tokens;
+  }
+  return 200000;
+}
+
 export function analyzeCacheLoss(requests, index) {
   const req = requests[index];
   if (!isMainAgent(req)) return null;
