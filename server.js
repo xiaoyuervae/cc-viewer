@@ -769,6 +769,37 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // 刷新统计：强制重新扫描所有项目日志，等待完成后再响应
+  if (url === '/api/refresh-stats' && method === 'POST') {
+    try {
+      if (!statsWorker) startStatsWorker();
+      if (statsWorker) {
+        const timeout = setTimeout(() => {
+          statsWorker?.removeListener('message', onDone);
+          res.writeHead(504, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Stats refresh timed out' }));
+        }, 30000);
+        const onDone = (m) => {
+          if (m.type === 'scan-all-done') {
+            clearTimeout(timeout);
+            statsWorker?.removeListener('message', onDone);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+          }
+        };
+        statsWorker.on('message', onDone);
+        statsWorker.postMessage({ type: 'scan-all', logDir: LOG_DIR });
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Stats worker not available' }));
+      }
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // macOS 用户头像和显示名
   if (url === '/api/user-profile' && method === 'GET') {
     const profile = await getUserProfile();
@@ -1219,7 +1250,7 @@ async function handleRequest(req, res) {
             const size = statSync(filePath).size;
             const turns = statsFiles?.[f]?.summary?.sessionCount || 0;
             if (!grouped[project]) grouped[project] = [];
-            grouped[project].push({ file: `${project}/${f}`, timestamp: ts, size, turns });
+            grouped[project].push({ file: `${project}/${f}`, timestamp: ts, size, turns, preview: statsFiles?.[f]?.preview || [] });
           }
         }
       }

@@ -424,4 +424,172 @@ describe('stats-worker: branch coverage', () => {
     // (timeout is expected here)
     assert.ok(true);
   });
+
+  it('collects all user prompts in preview (not limited to 2)', async () => {
+    const projectName = 'all-prompts';
+    const projectDir = join(logDir, projectName);
+    mkdirSync(projectDir, { recursive: true });
+
+    // Create 5 session-start entries (messages.length === 1)
+    const entries = [];
+    for (let i = 1; i <= 5; i++) {
+      entries.push({
+        mainAgent: true,
+        body: { model: 'claude', messages: [{ role: 'user', content: `prompt ${i}` }] },
+        response: { body: { model: 'claude', usage: { input_tokens: 10, output_tokens: 5 } } },
+      });
+    }
+    writeFileSync(join(projectDir, 'session.jsonl'), buildJsonlContent(entries));
+
+    await runWorker({ type: 'init', logDir, projectName }, 'init-done');
+
+    const stats = JSON.parse(readFileSync(join(projectDir, `${projectName}.json`), 'utf-8'));
+    const fileStats = Object.values(stats.files)[0];
+    assert.equal(fileStats.preview.length, 5, 'should collect all 5 user prompts, not just 2');
+    assert.equal(fileStats.preview[0], 'prompt 1');
+    assert.equal(fileStats.preview[4], 'prompt 5');
+  });
+
+  it('collects prompts from array content format', async () => {
+    const projectName = 'array-prompts';
+    const projectDir = join(logDir, projectName);
+    mkdirSync(projectDir, { recursive: true });
+
+    const entries = [
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [{ role: 'user', content: [{ type: 'text', text: 'array prompt one' }] }] },
+        response: { body: { model: 'claude', usage: { input_tokens: 10, output_tokens: 5 } } },
+      },
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [{ role: 'user', content: [{ type: 'text', text: 'array prompt two' }] }] },
+        response: { body: { model: 'claude', usage: { input_tokens: 10, output_tokens: 5 } } },
+      },
+    ];
+    writeFileSync(join(projectDir, 'session.jsonl'), buildJsonlContent(entries));
+
+    await runWorker({ type: 'init', logDir, projectName }, 'init-done');
+
+    const stats = JSON.parse(readFileSync(join(projectDir, `${projectName}.json`), 'utf-8'));
+    const fileStats = Object.values(stats.files)[0];
+    assert.equal(fileStats.preview.length, 2);
+    assert.equal(fileStats.preview[0], 'array prompt one');
+    assert.equal(fileStats.preview[1], 'array prompt two');
+  });
+
+  it('strips system-reminder tags from preview text', async () => {
+    const projectName = 'sys-tag-filter';
+    const projectDir = join(logDir, projectName);
+    mkdirSync(projectDir, { recursive: true });
+
+    const entries = [
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [{ role: 'user', content: '<system-reminder>secret instructions</system-reminder>hello world' }] },
+        response: { body: { model: 'claude', usage: { input_tokens: 10, output_tokens: 5 } } },
+      },
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [{ role: 'user', content: '<system-reminder>more secrets</system-reminder>' }] },
+        response: { body: { model: 'claude', usage: { input_tokens: 10, output_tokens: 5 } } },
+      },
+    ];
+    writeFileSync(join(projectDir, 'session.jsonl'), buildJsonlContent(entries));
+
+    await runWorker({ type: 'init', logDir, projectName }, 'init-done');
+
+    const stats = JSON.parse(readFileSync(join(projectDir, `${projectName}.json`), 'utf-8'));
+    const fileStats = Object.values(stats.files)[0];
+    assert.equal(fileStats.preview.length, 1, 'pure system-tag entry should be skipped');
+    assert.equal(fileStats.preview[0], 'hello world');
+  });
+
+  it('collects prompts from multi-turn conversations (not just len===1)', async () => {
+    const projectName = 'multi-turn';
+    const projectDir = join(logDir, projectName);
+    mkdirSync(projectDir, { recursive: true });
+
+    const entries = [
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [{ role: 'user', content: 'first turn' }] },
+        response: { body: { model: 'claude', usage: { input_tokens: 10, output_tokens: 5 } } },
+      },
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [
+          { role: 'user', content: 'first turn' },
+          { role: 'assistant', content: 'response 1' },
+          { role: 'user', content: 'second turn' },
+        ] },
+        response: { body: { model: 'claude', usage: { input_tokens: 20, output_tokens: 10 } } },
+      },
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [
+          { role: 'user', content: 'first turn' },
+          { role: 'assistant', content: 'response 1' },
+          { role: 'user', content: 'second turn' },
+          { role: 'assistant', content: 'response 2' },
+          { role: 'user', content: 'third turn' },
+        ] },
+        response: { body: { model: 'claude', usage: { input_tokens: 30, output_tokens: 15 } } },
+      },
+    ];
+    writeFileSync(join(projectDir, 'session.jsonl'), buildJsonlContent(entries));
+
+    await runWorker({ type: 'init', logDir, projectName }, 'init-done');
+
+    const stats = JSON.parse(readFileSync(join(projectDir, `${projectName}.json`), 'utf-8'));
+    const fileStats = Object.values(stats.files)[0];
+    assert.equal(fileStats.preview.length, 3, 'should collect prompt from each turn');
+    assert.equal(fileStats.preview[0], 'first turn');
+    assert.equal(fileStats.preview[1], 'second turn');
+    assert.equal(fileStats.preview[2], 'third turn');
+  });
+
+  it('does not duplicate preview when same turn has multiple requests', async () => {
+    const projectName = 'test-dedup';
+    const projectDir = join(logDir, projectName);
+    mkdirSync(projectDir, { recursive: true });
+
+    const sameTurnMsgs = [
+      { role: 'user', content: 'hello world' },
+      { role: 'assistant', content: 'hi' },
+      { role: 'user', content: 'do something' },
+    ];
+    // Simulate multiple main-agent requests within the same turn (same msg length)
+    const entries = [
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: [{ role: 'user', content: 'hello world' }] },
+        response: { body: { model: 'claude', usage: { input_tokens: 10, output_tokens: 5 } } },
+      },
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: sameTurnMsgs },
+        response: { body: { model: 'claude', usage: { input_tokens: 20, output_tokens: 10 } } },
+      },
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: sameTurnMsgs },
+        response: { body: { model: 'claude', usage: { input_tokens: 20, output_tokens: 10 } } },
+      },
+      {
+        mainAgent: true,
+        body: { model: 'claude', messages: sameTurnMsgs },
+        response: { body: { model: 'claude', usage: { input_tokens: 20, output_tokens: 10 } } },
+      },
+    ];
+    writeFileSync(join(projectDir, 'session.jsonl'), buildJsonlContent(entries));
+
+    await runWorker({ type: 'init', logDir, projectName }, 'init-done');
+
+    const stats = JSON.parse(readFileSync(join(projectDir, `${projectName}.json`), 'utf-8'));
+    const fileStats = Object.values(stats.files)[0];
+    assert.equal(fileStats.preview.length, 2, 'duplicate requests in same turn should not produce extra previews');
+    assert.equal(fileStats.preview[0], 'hello world');
+    assert.equal(fileStats.preview[1], 'do something');
+  });
 });

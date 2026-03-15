@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.37 (2026-03-16)
+
+- Feature: plan approval UI — ExitPlanMode cards show approve/reject/feedback buttons with status badges; only the last pending card is interactive
+- Feature: log table preview column — shows first user prompt from each conversation
+- Feature: `/api/refresh-stats` endpoint — force re-scan all project stats with 30s timeout
+- Feature: refresh stats button in import modal
+- Fix: preview collection in stats-worker always-true condition — same-turn duplicate requests no longer produce duplicate previews
+- Fix: plan feedback submission replaced fixed 300ms delay with polling (100ms intervals, max 2s) for reliable CLI mode detection
+- i18n: added plan approval and refresh stats entries for all supported languages
+
 ## 1.5.34 (2026-03-15)
 
 - Fix: chat panel repeatedly refreshing after restart — `watchLogFile()` now initializes `lastSize` to current file size instead of 0, preventing duplicate broadcast of historical entries already sent via `/events` load flow

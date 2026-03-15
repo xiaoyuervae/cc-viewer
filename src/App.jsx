@@ -1,6 +1,6 @@
 import React from 'react';
 import { ConfigProvider, Layout, theme, Modal, Table, Tag, Spin, Button, Checkbox, Badge, Switch, message } from 'antd';
-import { UploadOutlined, MessageOutlined, BranchesOutlined, DownloadOutlined, DeleteOutlined, RollbackOutlined } from '@ant-design/icons';
+import { UploadOutlined, MessageOutlined, BranchesOutlined, DownloadOutlined, DeleteOutlined, RollbackOutlined, ReloadOutlined } from '@ant-design/icons';
 import { isMobile, isIOS } from './env';
 import AppHeader from './components/AppHeader';
 import RequestList from './components/RequestList';
@@ -41,6 +41,7 @@ class App extends React.Component {
       importModalVisible: false,
       localLogs: {},       // { projectName: [{file, timestamp, size}] }
       localLogsLoading: false,
+      refreshingStats: false,
       showAll: false,
       lang: getLang(),      // 是否显示心跳请求
       userProfile: null,    // { name, avatar }
@@ -935,6 +936,27 @@ class App extends React.Component {
     this.setState({ importModalVisible: false, selectedLogs: new Set() });
   };
 
+  handleRefreshStats = () => {
+    this.setState({ refreshingStats: true });
+    fetch(apiUrl('/api/refresh-stats'), { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.ok) throw new Error(data.error || 'refresh failed');
+        // Worker 已完成扫描，直接重新加载日志列表
+        return fetch(apiUrl('/api/local-logs'));
+      })
+      .then(res => res.json())
+      .then(data => {
+        const { _currentProject, ...logs } = data;
+        this.setState({ localLogs: logs, refreshingStats: false });
+        message.success(t('ui.refreshStatsSuccess'));
+      })
+      .catch(() => {
+        this.setState({ refreshingStats: false });
+        message.error(t('ui.refreshStatsFailed'));
+      });
+  };
+
   renderLogTable(logs, mobile) {
     const columns = [
       {
@@ -955,8 +977,21 @@ class App extends React.Component {
         title: t('ui.logTime'),
         dataIndex: 'timestamp',
         key: 'time',
-        width: mobile ? 150 : undefined,
+        width: mobile ? 150 : 180,
         render: (ts) => <span style={{ whiteSpace: 'nowrap' }}>{this.formatTimestamp(ts)}</span>,
+      },
+      {
+        title: t('ui.logPreview'),
+        dataIndex: 'preview',
+        key: 'preview',
+        width: mobile ? 150 : undefined,
+        ellipsis: true,
+        render: (arr) => {
+          if (!Array.isArray(arr) || arr.length === 0) return '—';
+          const first = arr[0];
+          if (first.length <= 30 && arr.length > 1) return `${first} | ${arr[1]}`;
+          return first;
+        },
       },
       ...(!mobile ? [{
         title: t('ui.logTurns'),
@@ -1408,6 +1443,14 @@ class App extends React.Component {
                 >
                   {t('ui.deleteLogs')}
                 </Button>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined spin={this.state.refreshingStats} />}
+                  loading={this.state.refreshingStats}
+                  onClick={this.handleRefreshStats}
+                >
+                  {t('ui.refreshStats')}
+                </Button>
               </div>
               <div className={styles.mobileLogMgmtBody}>
                 {this.state.localLogsLoading ? (
@@ -1698,6 +1741,15 @@ class App extends React.Component {
               style={{ marginLeft: 8 }}
             >
               {t('ui.deleteLogs')}
+            </Button>
+            <Button
+              size="small"
+              icon={<ReloadOutlined spin={this.state.refreshingStats} />}
+              loading={this.state.refreshingStats}
+              onClick={this.handleRefreshStats}
+              style={{ marginLeft: 8 }}
+            >
+              {t('ui.refreshStats')}
             </Button>
           </div>
           {this.state.localLogsLoading ? (

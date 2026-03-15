@@ -36,6 +36,12 @@ function randomInterval() {
   return 100 + Math.random() * 50;
 }
 
+export function isPlanApprovalPrompt(prompt) {
+  if (!prompt) return false;
+  const q = prompt.question.toLowerCase();
+  return /plan/i.test(q) && (/approv/i.test(q) || /proceed/i.test(q) || /accept/i.test(q));
+}
+
 function buildToolResultMap(messages) {
   const toolUseMap = {};
   for (const msg of messages) {
@@ -114,7 +120,24 @@ function buildToolResultMap(messages) {
               }
             }
             if (plainLines.length > 0) {
-              _fileState[matchedTool.input.file_path] = { plainText: plainLines.join('\n'), lineNums };
+              const existing = _fileState[matchedTool.input.file_path];
+              if (existing) {
+                // 合并部分读取：将新读取的行按行号插入/覆盖到已有状态中
+                const mergedMap = new Map();
+                for (let i = 0; i < existing.lineNums.length; i++) {
+                  mergedMap.set(existing.lineNums[i], existing.plainText.split('\n')[i]);
+                }
+                for (let i = 0; i < lineNums.length; i++) {
+                  mergedMap.set(lineNums[i], plainLines[i]);
+                }
+                const sortedKeys = [...mergedMap.keys()].sort((a, b) => a - b);
+                _fileState[matchedTool.input.file_path] = {
+                  plainText: sortedKeys.map(k => mergedMap.get(k)).join('\n'),
+                  lineNums: sortedKeys,
+                };
+              } else {
+                _fileState[matchedTool.input.file_path] = { plainText: plainLines.join('\n'), lineNums };
+              }
             }
           }
         }
@@ -158,6 +181,8 @@ function buildToolResultMap(messages) {
   }
   // 构建 askAnswerMap：为每个 AskUserQuestion tool_use 解析用户选择的答案
   const askAnswerMap = {};
+  // 构建 planApprovalMap：为每个 ExitPlanMode tool_use 解析审批状态
+  const planApprovalMap = {};
   for (const msg of messages) {
     if (msg.role === 'user' && Array.isArray(msg.content)) {
       for (const block of msg.content) {
@@ -167,11 +192,15 @@ function buildToolResultMap(messages) {
             const resultText = extractToolResultText(block);
             askAnswerMap[block.tool_use_id] = parseAskAnswerText(resultText);
           }
+          if (matchedTool && matchedTool.name === 'ExitPlanMode') {
+            const resultText = extractToolResultText(block);
+            planApprovalMap[block.tool_use_id] = parsePlanApproval(resultText);
+          }
         }
       }
     }
   }
-  return { toolUseMap, toolResultMap, readContentMap, editSnapshotMap, askAnswerMap };
+  return { toolUseMap, toolResultMap, readContentMap, editSnapshotMap, askAnswerMap, planApprovalMap };
 }
 
 /** 从 AskUserQuestion tool_result 文本中提取答案 map */
@@ -183,6 +212,17 @@ function parseAskAnswerText(text) {
     answers[m[1]] = m[2];
   }
   return answers;
+}
+
+/** 从 ExitPlanMode tool_result 文本中解析审批状态 */
+function parsePlanApproval(text) {
+  if (!text) return { status: 'pending' };
+  if (/User has approved/i.test(text)) return { status: 'approved' };
+  if (/User rejected/i.test(text)) {
+    const feedbackMatch = text.match(/feedback:\s*(.+)/i) || text.match(/User rejected[^:]*:\s*(.+)/i);
+    return { status: 'rejected', feedback: feedbackMatch ? feedbackMatch[1].trim() : '' };
+  }
+  return { status: 'pending' };
 }
 
 class ChatView extends React.Component {
@@ -544,7 +584,26 @@ class ChatView extends React.Component {
 
   renderSessionMessages(messages, keyPrefix, modelInfo, tsToIndex) {
     const { userProfile, collapseToolResults, expandThinking, onViewRequest } = this.props;
-    const { toolUseMap, toolResultMap, readContentMap, editSnapshotMap, askAnswerMap } = buildToolResultMap(messages);
+    const { toolUseMap, toolResultMap, readContentMap, editSnapshotMap, askAnswerMap, planApprovalMap } = buildToolResultMap(messages);
+
+    const activePlanPrompt = this.props.cliMode
+      ? this.state.ptyPromptHistory.slice().reverse().find(p => isPlanApprovalPrompt(p) && p.status === 'active') || null
+      : null;
+
+    // P1: 只允许最后一个 pending 的 ExitPlanMode 卡片交互
+    let lastPendingPlanId = null;
+    for (const msg of messages) {
+      if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
+            const approval = planApprovalMap[block.id];
+            if (!approval || approval.status === 'pending') {
+              lastPendingPlanId = block.id;
+            }
+          }
+        }
+      }
+    }
 
     const renderedMessages = [];
 
@@ -595,11 +654,11 @@ class ChatView extends React.Component {
       } else if (msg.role === 'assistant') {
         if (Array.isArray(content)) {
           renderedMessages.push(
-            <ChatMessage key={`${keyPrefix}-asst-${mi}`} role="assistant" content={content} toolResultMap={toolResultMap} readContentMap={readContentMap} editSnapshotMap={editSnapshotMap} askAnswerMap={askAnswerMap} timestamp={ts} modelInfo={modelInfo} collapseToolResults={collapseToolResults} expandThinking={expandThinking} {...viewReqProps} />
+            <ChatMessage key={`${keyPrefix}-asst-${mi}`} role="assistant" content={content} toolResultMap={toolResultMap} readContentMap={readContentMap} editSnapshotMap={editSnapshotMap} askAnswerMap={askAnswerMap} planApprovalMap={planApprovalMap} timestamp={ts} modelInfo={modelInfo} collapseToolResults={collapseToolResults} expandThinking={expandThinking} ptyPrompt={this.state.ptyPrompt} activePlanPrompt={activePlanPrompt} lastPendingPlanId={lastPendingPlanId} onPlanApprovalClick={this.handlePromptOptionClick} onPlanFeedbackSubmit={this.handlePlanFeedbackSubmit} cliMode={this.props.cliMode} {...viewReqProps} />
           );
         } else if (typeof content === 'string') {
           renderedMessages.push(
-            <ChatMessage key={`${keyPrefix}-asst-${mi}`} role="assistant" content={[{ type: 'text', text: content }]} toolResultMap={toolResultMap} readContentMap={readContentMap} editSnapshotMap={editSnapshotMap} askAnswerMap={askAnswerMap} timestamp={ts} modelInfo={modelInfo} collapseToolResults={collapseToolResults} expandThinking={expandThinking} {...viewReqProps} />
+            <ChatMessage key={`${keyPrefix}-asst-${mi}`} role="assistant" content={[{ type: 'text', text: content }]} toolResultMap={toolResultMap} readContentMap={readContentMap} editSnapshotMap={editSnapshotMap} askAnswerMap={askAnswerMap} planApprovalMap={planApprovalMap} timestamp={ts} modelInfo={modelInfo} collapseToolResults={collapseToolResults} expandThinking={expandThinking} ptyPrompt={this.state.ptyPrompt} activePlanPrompt={activePlanPrompt} lastPendingPlanId={lastPendingPlanId} onPlanApprovalClick={this.handlePromptOptionClick} onPlanFeedbackSubmit={this.handlePlanFeedbackSubmit} cliMode={this.props.cliMode} {...viewReqProps} />
           );
         }
       }
@@ -880,7 +939,12 @@ class ChatView extends React.Component {
       }
     }
     // No match — if there was an active prompt, mark it dismissed
+    // But keep plan approval prompts active so ExitPlanMode buttons remain visible
     if (this.state.ptyPrompt) {
+      if (isPlanApprovalPrompt(this.state.ptyPrompt)) {
+        // Don't dismiss plan approval prompts — they stay active until explicitly answered
+        return;
+      }
       this.setState(state => {
         const history = state.ptyPromptHistory.slice();
         const last = history[history.length - 1];
@@ -931,6 +995,62 @@ class ChatView extends React.Component {
     sendStep(0);
 
     // 标记历史中最后一个 active 为 answered
+    this.setState(state => {
+      const history = state.ptyPromptHistory.slice();
+      const last = history[history.length - 1];
+      if (last && last.status === 'active') {
+        history[history.length - 1] = { ...last, status: 'answered', selectedNumber: number };
+      }
+      return { ptyPrompt: null, ptyPromptHistory: history };
+    });
+    this._ptyBuffer = '';
+    if (this._ptyDebounceTimer) clearTimeout(this._ptyDebounceTimer);
+  };
+
+  handlePlanFeedbackSubmit = (number, text) => {
+    const ws = this._inputWs;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const prompt = this.state.ptyPrompt;
+    if (!prompt) return;
+
+    const options = prompt.options;
+    const targetIdx = options.findIndex(o => o.number === number);
+    let currentIdx = options.findIndex(o => o.selected);
+    if (currentIdx < 0) currentIdx = 0;
+    const diff = targetIdx - currentIdx;
+    const arrowKey = diff > 0 ? '\x1b[B' : '\x1b[A';
+    const steps = Math.abs(diff);
+
+    const sendStep = (i) => {
+      if (i < steps) {
+        ws.send(JSON.stringify({ type: 'input', data: arrowKey }));
+        setTimeout(() => sendStep(i + 1), 30);
+      } else {
+        // 回车选中选项
+        setTimeout(() => {
+          ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+          // 轮询等待 CLI 进入文本输入模式（buffer 变化说明已响应）
+          const startBuf = this._ptyBuffer;
+          let attempts = 0;
+          const poll = () => {
+            attempts++;
+            if (attempts > 20 || this._ptyBuffer !== startBuf) {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data: text }));
+                setTimeout(() => {
+                  ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+                }, 50);
+              }
+              return;
+            }
+            setTimeout(poll, 100);
+          };
+          setTimeout(poll, 100);
+        }, 50);
+      }
+    };
+    sendStep(0);
+
     this.setState(state => {
       const history = state.ptyPromptHistory.slice();
       const last = history[history.length - 1];
@@ -1181,7 +1301,7 @@ class ChatView extends React.Component {
       </button>
     ) : null;
 
-    const promptBubbles = cliMode && ptyPromptHistory.length > 0 ? ptyPromptHistory.map((p, i) => {
+    const promptBubbles = cliMode && ptyPromptHistory.length > 0 ? ptyPromptHistory.filter(p => !(isPlanApprovalPrompt(p) && p.status === 'active')).map((p, i) => {
       const isActive = p.status === 'active';
       const isAnswered = p.status === 'answered';
       return (

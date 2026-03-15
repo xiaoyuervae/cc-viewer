@@ -428,4 +428,12 @@ describe('server API endpoints', { concurrency: false }, () => {
       rmSync(workspace, { recursive: true, force: true });
     }
   });
+
+  // --- POST /api/refresh-stats ---
+  it('POST /api/refresh-stats returns 200', async () => {
+    const res = await httpRequest(port, '/api/refresh-stats', { method: 'POST' });
+    assert.equal(res.status, 200);
+    const data = res.json();
+    assert.equal(data.ok, true);
+  });
 });

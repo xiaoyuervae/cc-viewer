@@ -2355,6 +2355,66 @@ const i18nData = {
     "tr": "Logları sil",
     "uk": "Видалити логи"
   },
+  "ui.refreshStats": {
+    "zh": "刷新",
+    "en": "Refresh",
+    "zh-TW": "重新整理",
+    "ko": "새로고침",
+    "ja": "更新",
+    "de": "Aktualisieren",
+    "es": "Actualizar",
+    "fr": "Actualiser",
+    "it": "Aggiorna",
+    "da": "Opdater",
+    "pl": "Odśwież",
+    "ru": "Обновить",
+    "ar": "تحديث",
+    "no": "Oppdater",
+    "pt-BR": "Atualizar",
+    "th": "รีเฟรช",
+    "tr": "Yenile",
+    "uk": "Оновити"
+  },
+  "ui.refreshStatsSuccess": {
+    "zh": "统计数据已刷新",
+    "en": "Stats refreshed",
+    "zh-TW": "統計資料已重新整理",
+    "ko": "통계가 새로고침되었습니다",
+    "ja": "統計が更新されました",
+    "de": "Statistiken aktualisiert",
+    "es": "Estadísticas actualizadas",
+    "fr": "Statistiques actualisées",
+    "it": "Statistiche aggiornate",
+    "da": "Statistik opdateret",
+    "pl": "Statystyki odświeżone",
+    "ru": "Статистика обновлена",
+    "ar": "تم تحديث الإحصائيات",
+    "no": "Statistikk oppdatert",
+    "pt-BR": "Estatísticas atualizadas",
+    "th": "รีเฟรชสถิติแล้ว",
+    "tr": "İstatistikler yenilendi",
+    "uk": "Статистику оновлено"
+  },
+  "ui.refreshStatsFailed": {
+    "zh": "刷新统计失败",
+    "en": "Failed to refresh stats",
+    "zh-TW": "重新整理統計失敗",
+    "ko": "통계 새로고침 실패",
+    "ja": "統計の更新に失敗しました",
+    "de": "Statistiken konnten nicht aktualisiert werden",
+    "es": "Error al actualizar estadísticas",
+    "fr": "Échec de l'actualisation des statistiques",
+    "it": "Aggiornamento statistiche fallito",
+    "da": "Kunne ikke opdatere statistik",
+    "pl": "Nie udało się odświeżyć statystyk",
+    "ru": "Не удалось обновить статистику",
+    "ar": "فشل تحديث الإحصائيات",
+    "no": "Kunne ikke oppdatere statistikk",
+    "pt-BR": "Falha ao atualizar estatísticas",
+    "th": "รีเฟรชสถิติล้มเหลว",
+    "tr": "İstatistikler yenilenemedi",
+    "uk": "Не вдалося оновити статистику"
+  },
   "ui.deleteLogsConfirm": {
     "zh": "确定要删除选中的 {count} 个日志文件吗？此操作不可撤销。",
     "en": "Are you sure you want to delete {count} selected log file(s)? This action cannot be undone.",
@@ -2414,6 +2474,26 @@ const i18nData = {
     "th": "ดาวน์โหลด",
     "tr": "İndir",
     "uk": "Завантажити"
+  },
+  "ui.logPreview": {
+    "zh": "概览",
+    "en": "Preview",
+    "zh-TW": "概覽",
+    "ko": "미리보기",
+    "ja": "プレビュー",
+    "de": "Vorschau",
+    "es": "Vista previa",
+    "fr": "Aperçu",
+    "it": "Anteprima",
+    "da": "Forhåndsvisning",
+    "pl": "Podgląd",
+    "ru": "Обзор",
+    "ar": "معاينة",
+    "no": "Forhåndsvisning",
+    "pt-BR": "Prévia",
+    "th": "ตัวอย่าง",
+    "tr": "Önizleme",
+    "uk": "Огляд"
   },
   "ui.logTime": {
     "zh": "时间",
@@ -3034,6 +3114,70 @@ const i18nData = {
     "th": "สิทธิ์ที่ร้องขอ",
     "tr": "İstenen izinler",
     "uk": "Запитані дозволи"
+  },
+  "ui.planApproved": {
+    "zh": "已批准", "en": "Approved", "zh-TW": "已批准",
+    "ko": "승인됨", "ja": "承認済み", "de": "Genehmigt",
+    "es": "Aprobado", "fr": "Approuvé", "it": "Approvato",
+    "da": "Godkendt", "pl": "Zatwierdzono", "ru": "Одобрено",
+    "ar": "تمت الموافقة", "no": "Godkjent", "pt-BR": "Aprovado",
+    "th": "อนุมัติแล้ว", "tr": "Onaylandı", "uk": "Затверджено"
+  },
+  "ui.planRejected": {
+    "zh": "已拒绝", "en": "Rejected", "zh-TW": "已拒絕",
+    "ko": "거부됨", "ja": "却下済み", "de": "Abgelehnt",
+    "es": "Rechazado", "fr": "Rejeté", "it": "Rifiutato",
+    "da": "Afvist", "pl": "Odrzucono", "ru": "Отклонено",
+    "ar": "مرفوض", "no": "Avvist", "pt-BR": "Rejeitado",
+    "th": "ถูกปฏิเสธ", "tr": "Reddedildi", "uk": "Відхилено"
+  },
+  "ui.planPending": {
+    "zh": "待审批", "en": "Pending", "zh-TW": "待審批",
+    "ko": "대기 중", "ja": "承認待ち", "de": "Ausstehend",
+    "es": "Pendiente", "fr": "En attente", "it": "In attesa",
+    "da": "Afventer", "pl": "Oczekuje", "ru": "Ожидает",
+    "ar": "قيد الانتظار", "no": "Venter", "pt-BR": "Pendente",
+    "th": "รอดำเนินการ", "tr": "Beklemede", "uk": "Очікує"
+  },
+  "ui.planApprove": {
+    "zh": "批准", "en": "Approve", "zh-TW": "批准",
+    "ko": "승인", "ja": "承認", "de": "Genehmigen",
+    "es": "Aprobar", "fr": "Approuver", "it": "Approva",
+    "da": "Godkend", "pl": "Zatwierdź", "ru": "Одобрить",
+    "ar": "موافقة", "no": "Godkjenn", "pt-BR": "Aprovar",
+    "th": "อนุมัติ", "tr": "Onayla", "uk": "Схвалити"
+  },
+  "ui.planReject": {
+    "zh": "拒绝", "en": "Reject", "zh-TW": "拒絕",
+    "ko": "거부", "ja": "拒否", "de": "Ablehnen",
+    "es": "Rechazar", "fr": "Rejeter", "it": "Rifiuta",
+    "da": "Afvis", "pl": "Odrzuć", "ru": "Отклонить",
+    "ar": "رفض", "no": "Avvis", "pt-BR": "Rejeitar",
+    "th": "ปฏิเสธ", "tr": "Reddet", "uk": "Відхилити"
+  },
+  "ui.planFeedback": {
+    "zh": "反馈", "en": "Feedback", "zh-TW": "回饋",
+    "ko": "피드백", "ja": "フィードバック", "de": "Feedback",
+    "es": "Comentarios", "fr": "Retour", "it": "Feedback",
+    "da": "Feedback", "pl": "Opinia", "ru": "Отзыв",
+    "ar": "ملاحظات", "no": "Tilbakemelding", "pt-BR": "Feedback",
+    "th": "ข้อเสนอแนะ", "tr": "Geri bildirim", "uk": "Відгук"
+  },
+  "ui.planFeedbackPlaceholder": {
+    "zh": "输入你的修改建议…", "en": "Type your feedback…", "zh-TW": "輸入你的修改建議…",
+    "ko": "피드백을 입력하세요…", "ja": "フィードバックを入力…", "de": "Feedback eingeben…",
+    "es": "Escribe tu comentario…", "fr": "Saisissez votre retour…", "it": "Scrivi il tuo feedback…",
+    "da": "Skriv din feedback…", "pl": "Wpisz swoją opinię…", "ru": "Введите отзыв…",
+    "ar": "اكتب ملاحظاتك…", "no": "Skriv tilbakemelding…", "pt-BR": "Digite seu feedback…",
+    "th": "พิมพ์ข้อเสนอแนะ…", "tr": "Geri bildiriminizi yazın…", "uk": "Введіть відгук…"
+  },
+  "ui.planFeedbackSubmit": {
+    "zh": "发送", "en": "Send", "zh-TW": "傳送",
+    "ko": "보내기", "ja": "送信", "de": "Senden",
+    "es": "Enviar", "fr": "Envoyer", "it": "Invia",
+    "da": "Send", "pl": "Wyślij", "ru": "Отправить",
+    "ar": "إرسال", "no": "Send", "pt-BR": "Enviar",
+    "th": "ส่ง", "tr": "Gönder", "uk": "Надіслати"
   },
   "ui.context.systemPrompt": {
     "zh": "系统提示词", "en": "System Prompt", "zh-TW": "系統提示詞",

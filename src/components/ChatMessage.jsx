@@ -4,6 +4,7 @@ import { renderMarkdown } from '../utils/markdown';
 import { escapeHtml, truncateText, getSvgAvatar } from '../utils/helpers';
 import { renderAssistantText } from '../utils/systemTags';
 import { t } from '../i18n';
+import { isPlanApprovalPrompt } from './ChatView';
 import DiffView from './DiffView';
 import ToolResultView from './ToolResultView';
 import TranslateTag from './TranslateTag';
@@ -19,6 +20,9 @@ class ChatMessage extends React.Component {
     this.state = {
       // { [thinkingIndex]: translatedHtml | null }
       thinkingTranslated: {},
+      planFeedbackInput: false,
+      planFeedbackText: '',
+      planFeedbackOptNumber: null,
     };
   }
 
@@ -326,15 +330,101 @@ class ChatMessage extends React.Component {
     // ExitPlanMode: 计划就绪
     if (tu.name === 'ExitPlanMode') {
       const prompts = inp.allowedPrompts || [];
+      const { planApprovalMap } = this.props;
+      const approval = (planApprovalMap && planApprovalMap[tu.id]) || { status: 'pending' };
+      const isPending = approval.status === 'pending';
+      const planPrompt = isPlanApprovalPrompt(this.props.ptyPrompt)
+        ? this.props.ptyPrompt
+        : this.props.activePlanPrompt || null;
+      const isInteractive = isPending && this.props.cliMode && !!planPrompt && tu.id === this.props.lastPendingPlanId;
+      const statusClass = approval.status === 'approved' ? styles.planStatusApproved
+        : approval.status === 'rejected' ? styles.planStatusRejected
+        : styles.planStatusPending;
+      const statusIcon = approval.status === 'approved' ? '✓'
+        : approval.status === 'rejected' ? '✗' : '●';
+      const statusKey = approval.status === 'approved' ? 'ui.planApproved'
+        : approval.status === 'rejected' ? 'ui.planRejected' : 'ui.planPending';
       return (
-        <div key={tu.id} className={styles.planModeBox}>
-          <span className={styles.planModeLabel}>{t('ui.exitPlanMode')}</span>
+        <div key={tu.id} className={`${styles.planModeBox} ${statusClass}`}>
+          <div className={styles.planModeHeader}>
+            <span className={styles.planModeLabel}>{t('ui.exitPlanMode')}</span>
+            {!isInteractive && (
+              <span className={`${styles.planStatusBadge} ${statusClass}`}>{statusIcon} {t(statusKey)}</span>
+            )}
+          </div>
           {prompts.length > 0 && (
             <div className={styles.planModePermissions}>
               <div className={styles.planModePermLabel}>{t('ui.allowedPrompts')}</div>
               {prompts.map((p, pi) => (
                 <div key={pi} className={styles.askOptionItem}>• {p.prompt || p.tool}</div>
               ))}
+            </div>
+          )}
+          {isInteractive && !this.state.planFeedbackInput && (
+            <div className={styles.planApprovalActions}>
+              {planPrompt.options.map(opt => {
+                const txt = opt.text.toLowerCase();
+                let btnCls = styles.planOptionBtn;
+                if (/yes|approve|accept|proceed/i.test(txt)) btnCls = styles.planApproveBtn;
+                else if (/no|reject|deny|feedback/i.test(txt)) btnCls = styles.planRejectBtn;
+                const isFeedbackOpt = /type|tell|change|feedback|edit/i.test(opt.text);
+                return (
+                  <button key={opt.number} className={btnCls} onClick={() => {
+                    if (isFeedbackOpt) {
+                      this.setState({ planFeedbackInput: true, planFeedbackOptNumber: opt.number, planFeedbackText: '' });
+                    } else {
+                      this.props.onPlanApprovalClick(opt.number);
+                    }
+                  }}>
+                    {opt.text}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {isInteractive && this.state.planFeedbackInput && (
+            <div className={styles.planFeedbackInputWrap}>
+              <textarea
+                className={styles.planFeedbackTextarea}
+                placeholder={t('ui.planFeedbackPlaceholder')}
+                value={this.state.planFeedbackText}
+                onChange={e => this.setState({ planFeedbackText: e.target.value })}
+                onKeyDown={e => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    const text = this.state.planFeedbackText.trim();
+                    if (text && this.props.onPlanFeedbackSubmit) {
+                      this.props.onPlanFeedbackSubmit(this.state.planFeedbackOptNumber, text);
+                      this.setState({ planFeedbackInput: false, planFeedbackText: '', planFeedbackOptNumber: null });
+                    }
+                  }
+                }}
+                autoFocus
+                rows={3}
+              />
+              <div className={styles.planFeedbackBtnRow}>
+                <button className={styles.planFeedbackCancelBtn} onClick={() => this.setState({ planFeedbackInput: false, planFeedbackText: '', planFeedbackOptNumber: null })}>
+                  {t('ui.cancel')}
+                </button>
+                <button
+                  className={styles.planFeedbackSendBtn}
+                  disabled={!this.state.planFeedbackText.trim()}
+                  onClick={() => {
+                    const text = this.state.planFeedbackText.trim();
+                    if (text && this.props.onPlanFeedbackSubmit) {
+                      this.props.onPlanFeedbackSubmit(this.state.planFeedbackOptNumber, text);
+                      this.setState({ planFeedbackInput: false, planFeedbackText: '', planFeedbackOptNumber: null });
+                    }
+                  }}
+                >
+                  {t('ui.planFeedbackSubmit')}
+                </button>
+              </div>
+            </div>
+          )}
+          {approval.status === 'rejected' && approval.feedback && (
+            <div className={styles.planFeedback}>
+              <span className={styles.planFeedbackLabel}>{t('ui.planFeedback')}:</span> {approval.feedback}
             </div>
           )}
         </div>
