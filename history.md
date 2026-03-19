@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.9 (2026-03-20)
+## 1.6.10 (2026-03-20)
 
 - Feature: extract teammate name from SendMessage `tool_result` — `routing.sender` field provides reliable structured name, replacing fallback "X" display
 - Fix: empty temp log files no longer renamed to permanent logs — empty files are deleted instead, preventing ghost sessions in file listing
