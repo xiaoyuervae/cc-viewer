@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { t } from '../i18n';
 import FullFileDiffView from './FullFileDiffView';
 import styles from './GitDiffView.module.css';
@@ -16,7 +16,20 @@ export default function GitDiffView({ filePath, onClose, onOpenFile }) {
   const [diffData, setDiffData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [closing, setClosing] = useState(false);
   const mounted = useRef(true);
+  const containerRef = useRef(null);
+
+  const handleClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    const el = containerRef.current;
+    if (el) {
+      el.addEventListener('animationend', () => onClose(), { once: true });
+    } else {
+      onClose();
+    }
+  }, [closing, onClose]);
 
   useEffect(() => {
     mounted.current = true;
@@ -56,10 +69,10 @@ export default function GitDiffView({ filePath, onClose, onOpenFile }) {
   }, [filePath]);
 
   return (
-    <div className={styles.gitDiffView}>
+    <div ref={containerRef} className={`${styles.gitDiffView}${closing ? ` ${styles.closing}` : ''}`}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <button className={styles.backBtn} onClick={onClose} title={t('ui.backToChat')}>
+          <button className={styles.backBtn} onClick={handleClose} title={t('ui.backToChat')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
@@ -84,7 +97,7 @@ export default function GitDiffView({ filePath, onClose, onOpenFile }) {
           <span className={styles.diffBadge}>DIFF</span>
         </div>
         <div className={styles.headerRight}>
-          <button className={styles.closeBtn} onClick={onClose} title={t('ui.backToChat')}>
+          <button className={styles.closeBtn} onClick={handleClose} title={t('ui.backToChat')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>

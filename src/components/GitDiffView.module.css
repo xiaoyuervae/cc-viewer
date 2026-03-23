@@ -4,6 +4,33 @@
   flex-direction: column;
   background: #0d0d0d;
   overflow: hidden;
+  animation: slideInFromRight 0.25s ease-out;
+}
+
+@keyframes slideInFromRight {
+  from {
+    transform: translateX(-40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.closing {
+  animation: slideOutToRight 0.2s ease-in forwards;
+}
+
+@keyframes slideOutToRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-40px);
+    opacity: 0;
+  }
 }
 
 .header {

@@ -500,10 +500,12 @@ class ChatView extends React.Component {
     }
 
     if (allItems.length > QUEUE_THRESHOLD) {
-      this.setState({ allItems, lastResponseItems, visibleCount: 0, loading: true });
+      // 保留已渲染的内容，避免闪烁；仅新增部分延迟渲染
+      const keepVisible = Math.max(0, prevLen);
+      this.setState({ allItems, lastResponseItems, visibleCount: keepVisible, loading: false });
       this._queueTimer = setTimeout(() => {
-        this.setState({ visibleCount: allItems.length, loading: false }, () => this.scrollToBottom());
-      }, 300);
+        this.setState({ visibleCount: allItems.length }, () => this.scrollToBottom());
+      }, 50);
     } else {
       const startFrom = Math.max(0, prevLen);
       this.setState({ allItems, lastResponseItems, visibleCount: startFrom, loading: false });
