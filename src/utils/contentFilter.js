@@ -6,8 +6,11 @@
 
 const SUBAGENT_SYSTEM_RE = /command execution specialist|file search specialist|planning specialist|general-purpose agent/i;
 
-// Teammate 检测：system prompt 中包含 Agent Teammate Communication 标记
+// Teammate 检测：system prompt 中包含 Agent Teammate Communication 标记（外部进程 teammate）
 const TEAMMATE_SYSTEM_RE = /running as an agent in a team|Agent Teammate Communication/i;
+
+// Native teammate 检测（同进程内 Agent 子代理），独立模块便于版本兼容
+import { isNativeTeammate, extractNativeTeammateName } from './teammateDetector';
 
 /**
  * 提取请求体中的 system prompt 文本
@@ -35,7 +38,16 @@ export function isTeammate(req) {
   if (cached !== undefined) return cached;
   // interceptor 模式：通过 process.argv 写入的 teammate 字段
   if (req.teammate) { _isTeammateCache.set(req, true); return true; }
-  // proxy 模式：通过 system prompt 检测
+  // native teammate：同进程内 Agent 子代理（system prompt 包含 "You are a Claude agent"）
+  if (isNativeTeammate(req)) {
+    // 注入 teammate 字段供下游 requestType.js 的 formatTeammateLabel 使用
+    if (!req.teammate) {
+      req.teammate = extractNativeTeammateName(req) || null;
+    }
+    _isTeammateCache.set(req, true);
+    return true;
+  }
+  // proxy 模式：通过 system prompt 检测（外部进程 teammate）
   const sysText = getSystemText(req.body || {});
   const result = TEAMMATE_SYSTEM_RE.test(sysText);
   _isTeammateCache.set(req, result);
