@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.34 (2026-03-24)
+
+- Remove: translate feature (server /api/translate endpoint, TranslateTag component, translator.js)
+- Style: footer align left
+
 ## 1.6.33 (2026-03-24)
 
 - Fix: eliminate server-side OOM on large JSONL files — server no longer reconstructs delta entries, sends raw delta via streaming SSE; client reconstructs locally

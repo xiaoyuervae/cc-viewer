@@ -47,7 +47,7 @@ import { watchLogFile, startWatching, getWatchedFiles } from './lib/log-watcher.
 import { isMainAgentEntry, extractCachedContent } from './lib/kv-cache-analyzer.js';
 import { listLocalLogs, deleteLogFiles, mergeLogFiles } from './lib/log-management.js';
 import { countLogEntries, streamRawEntriesAsync } from './lib/log-stream.js';
-import { detectTargetLang, translate } from './lib/translator.js';
+
 
 const PREFS_FILE = join(LOG_DIR, 'preferences.json');
 
@@ -390,58 +390,6 @@ async function handleRequest(req, res) {
       } catch {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid request body' }));
-      }
-    });
-    return;
-  }
-
-  // 翻译 API
-  if (url === '/api/translate' && method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; if (body.length > MAX_POST_BODY) req.destroy(); });
-    req.on('end', async () => {
-      try {
-        const { text, from = 'en', to } = JSON.parse(body);
-        if (!text) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing "text" field' }));
-          return;
-        }
-
-        // 确定目标语言
-        const targetLang = to || detectTargetLang(PREFS_FILE);
-
-        // 获取 API Key（仅 x-api-key 认证，不复用 session token 避免上下文污染）
-        // 优先级: 环境变量 > 拦截缓存 > 从 authHeader 中提取 sk- 开头的 key
-        let apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || _cachedApiKey;
-        if (!apiKey && _cachedAuthHeader) {
-          const m = _cachedAuthHeader.match(/^Bearer\s+(sk-\S+)$/i);
-          if (m) apiKey = m[1];
-        }
-        if (!apiKey) {
-          res.writeHead(501, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'No API key available. Set ANTHROPIC_API_KEY or use x-api-key authentication.' }));
-          return;
-        }
-
-        const result = await translate({
-          text,
-          from,
-          to: targetLang,
-          apiKey,
-          baseUrl: process.env.ANTHROPIC_BASE_URL,
-          model: _cachedHaikuModel,
-        });
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(result));
-      } catch (err) {
-        const status = err.status ? 502 : 500;
-        const payload = err.status
-          ? { error: 'Translation API failed', status: err.status, detail: err.detail }
-          : { error: 'Internal error', message: err.message };
-        res.writeHead(status, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(payload));
       }
     });
     return;

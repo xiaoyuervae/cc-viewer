@@ -5,7 +5,7 @@ import { renderMarkdown } from '../utils/markdown';
 import { t } from '../i18n';
 import { getContextSidebarArrowNavigation } from '../utils/contextSidebarNavigation';
 import JsonViewer from './JsonViewer';
-import TranslateTag from './TranslateTag';
+
 import styles from './ContextTab.module.css';
 
 const { Text } = Typography;
@@ -161,19 +161,11 @@ function formatTurnTime(isoStr) {
 // ── Block renderers ───────────────────────────────────────────────────────────
 
 function TranslatableMarkdown({ text, compact }) {
-  const [translatedHtml, setTranslatedHtml] = useState(null);
-  const displayHtml = translatedHtml || renderMarkdown(text);
-  const translateTag = (
-    <TranslateTag
-      text={text}
-      onTranslated={(txt) => setTranslatedHtml(txt ? renderMarkdown(txt) : null)}
-    />
-  );
+  const displayHtml = renderMarkdown(text);
 
   if (compact) {
     return (
       <div className={styles.textBlockCompact}>
-        <span className={styles.textBlockCompactFloat}>{translateTag}</span>
         <div className={`chat-md ${styles.markdownBody}`} dangerouslySetInnerHTML={{ __html: displayHtml }} />
       </div>
     );
@@ -183,7 +175,6 @@ function TranslatableMarkdown({ text, compact }) {
     <div className={styles.textBlock}>
       <div className={styles.textBlockBar}>
         <span className={`${styles.blockTag} ${styles.blockTagText}`}>text</span>
-        {translateTag}
       </div>
       <div className={`chat-md ${styles.textBlockBody}`} dangerouslySetInnerHTML={{ __html: displayHtml }} />
     </div>
@@ -192,29 +183,19 @@ function TranslatableMarkdown({ text, compact }) {
 
 function ThinkingBlock({ block }) {
   const [expanded, setExpanded] = useState(true);
-  const [translatedHtml, setTranslatedHtml] = useState(null);
   const preview = block.text.length > 60 ? block.text.slice(0, 60).replace(/\n/g, ' ') + '…' : block.text.replace(/\n/g, ' ');
-  const displayHtml = translatedHtml || renderMarkdown(block.text);
   return (
     <div className={styles.thinkingBlock}>
       <div className={styles.thinkingHeader} onClick={() => setExpanded((v) => !v)}>
         {expanded ? <DownOutlined className={styles.arrow} /> : <RightOutlined className={styles.arrow} />}
         <span className={`${styles.blockTag} ${styles.blockTagThinking}`}>thinking</span>
         {!expanded && <span className={styles.thinkingPreview}>{preview}</span>}
-        {expanded && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <TranslateTag
-              text={block.text}
-              onTranslated={(txt) => setTranslatedHtml(txt ? renderMarkdown(txt) : null)}
-            />
-          </span>
-        )}
       </div>
       {expanded && (
         <div className={styles.thinkingBody}>
           <div
             className={`chat-md ${styles.markdownBody}`}
-            dangerouslySetInnerHTML={{ __html: displayHtml }}
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(block.text) }}
           />
         </div>
       )}
