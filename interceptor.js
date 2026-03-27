@@ -198,7 +198,7 @@ export function resetWorkspace() {
   LOG_FILE = '';
 }
 
-const MAX_LOG_SIZE = 250 * 1024 * 1024; // 250MB
+const MAX_LOG_SIZE = 300 * 1024 * 1024; // 300MB
 
 function checkAndRotateLogFile() {
   // Teammate 不做日志轮转，由 leader 负责

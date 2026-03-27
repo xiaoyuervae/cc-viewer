@@ -221,6 +221,26 @@ const i18nData = {
     "tr": "Log klasörünü aç",
     "uk": "Відкрити теку логів"
   },
+  "ui.openProjectDir": {
+    "zh": "在系统中打开项目文件夹",
+    "en": "Open project folder",
+    "zh-TW": "在系統中開啟專案資料夾",
+    "ko": "프로젝트 폴더 열기",
+    "ja": "プロジェクトフォルダを開く",
+    "de": "Projektordner öffnen",
+    "es": "Abrir carpeta del proyecto",
+    "fr": "Ouvrir le dossier du projet",
+    "it": "Apri cartella progetto",
+    "da": "Åbn projektmappe",
+    "pl": "Otwórz folder projektu",
+    "ru": "Открыть папку проекта",
+    "ar": "فتح مجلد المشروع",
+    "no": "Åpne prosjektmappe",
+    "pt-BR": "Abrir pasta do projeto",
+    "th": "เปิดโฟลเดอร์โปรเจกต์",
+    "tr": "Proje klasörünü aç",
+    "uk": "Відкрити теку проєкту"
+  },
   "ui.loadLocalJsonl": {
     "zh": "上传日志并解析",
     "en": "Upload and parse log",

@@ -590,7 +590,11 @@ async function handleRequest(req, res) {
       'Connection': 'keep-alive',
     });
 
-    clients.push(res);
+    // 注意：不要在此处 clients.push(res)！
+    // 必须等 load_end + kv_cache + context_window 全部发送完毕后再加入广播列表，
+    // 否则 streamRawEntriesAsync 的 setImmediate yield 间隙会让 watcher 的
+    // sendToClients 向该客户端推送 live entry，而 load_end 的 setState 会覆盖这些
+    // 已处理的 live entry，导致 对话条目"显示→消失→重现"闪烁。
 
     // SSE 心跳保活：每 30s 发送 ping 事件，防止连接被 OS/代理/浏览器静默断开
     const pingTimer = setInterval(() => {
@@ -664,6 +668,10 @@ async function handleRequest(req, res) {
         }
       } catch { }
     }
+
+    // 历史数据 + KV-Cache + context_window 全部发送完毕后，才将客户端加入广播列表。
+    // 这样 watcher 的 sendToClients 不会在 load 阶段向该客户端推送 live entry。
+    clients.push(res);
 
     req.on('close', () => {
       clearInterval(pingTimer);
@@ -941,7 +949,16 @@ async function handleRequest(req, res) {
   if (url === '/api/open-log-dir' && method === 'POST') {
     const dir = LOG_FILE ? dirname(LOG_FILE) : LOG_DIR;
     const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
-    exec(`${cmd} ${JSON.stringify(dir)}`, () => {});
+    execFile(cmd, [dir], () => {});
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, dir }));
+    return;
+  }
+
+  if (url === '/api/open-project-dir' && method === 'POST') {
+    const dir = process.env.CCV_PROJECT_DIR || process.cwd();
+    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
+    execFile(cmd, [dir], () => {});
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, dir }));
     return;

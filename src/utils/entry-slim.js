@@ -51,8 +51,8 @@ export function createEntrySlimmer(isMainAgentFn) {
         (prevUserId && userId && userId !== prevUserId)
       );
 
-      // 瞬态请求过滤
-      if (isNewSession && count <= 4 && prevMsgCount > 10) {
+      // 瞬态请求过滤（阈值与 App.jsx _flushPendingEntries 保持一致：>4）
+      if (isNewSession && count <= 4 && prevMsgCount > 4) {
         return entry;
       }
 
@@ -207,8 +207,8 @@ export function createIncrementalSlimmer(isMainAgentFn) {
         (prevUserId && userId && userId !== prevUserId)
       );
 
-      // 瞬态请求过滤
-      if (isNewSession && count <= 4 && prevMsgCount > 10) {
+      // 瞬态请求过滤（阈值与 App.jsx _flushPendingEntries 保持一致：>4）
+      if (isNewSession && count <= 4 && prevMsgCount > 4) {
         return entry;
       }
 
@@ -221,20 +221,25 @@ export function createIncrementalSlimmer(isMainAgentFn) {
       }
 
       // 前向 slim：剪枝上一条 MainAgent
+      // 注意：必须 clone entry 再修改，不能 in-place mutate。
+      // requests 数组是 [...prev.requests] 浅拷贝，元素仍与 React 上一次 state 共享引用，
+      // 直接 mutate 会导致 React 渲染中途看到 messages=[] 的中间态，引起对话闪烁。
       if (prevMainIdx >= 0 && prevMainIdx < requests.length) {
-        const prev = requests[prevMainIdx];
-        if (prev.body?.messages?.length > 0) {
-          prev._messageCount = prev.body.messages.length;
-          prev._slimmed = true;
-          prev._fullEntryIndex = currentIdx;
-          prev.body.messages = [];
+        const orig = requests[prevMainIdx];
+        if (orig.body?.messages?.length > 0) {
+          const cloned = { ...orig, body: { ...orig.body }, _messageCount: orig.body.messages.length, _slimmed: true, _fullEntryIndex: currentIdx };
+          cloned.body.messages = [];
+          requests[prevMainIdx] = cloned;
           sessionSlimmedIndices.add(prevMainIdx);
         }
       }
 
       // 全量回填：更新本 session 内所有已剪枝 entries 的 _fullEntryIndex
+      // 同样需要 clone，避免 mutate React state 中的共享引用
       for (const idx of sessionSlimmedIndices) {
-        requests[idx]._fullEntryIndex = currentIdx;
+        if (requests[idx]._fullEntryIndex !== currentIdx) {
+          requests[idx] = { ...requests[idx], _fullEntryIndex: currentIdx };
+        }
       }
 
       entry._prevMsgCount = prevMsgCount;

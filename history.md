@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.43 (2026-03-27)
+
+- Fix: eliminate ChatView initialization flickering — delay SSE client broadcast registration until historical load completes (server.js)
+- Fix: entry-slim clone before mutation — prevent React state shared-reference corruption causing message flash-blank
+- Fix: suppress "暂无对话" Empty flash during SSE loading via fileLoading prop guard
+- Fix: lower transient request filter threshold from >10 to >4, protecting early conversations (5-10 messages) from transient flicker; synchronized across 4 code locations
+- Feature: teammate fallback rendering — display teammate conversation history when MainAgent sessions are empty (e.g. truncated JSONL)
+- Feature: OpenFolderIcon component for file explorer and log management
+- Feature: open-project-dir API endpoint and file explorer integration
+- Fix: timeline gantt indicator height covers all agent rows when scrolled (scrollHeight-based)
+- i18n: add ui.openProjectDir entries for all 18 languages
+
 ## 1.6.40 (2026-03-26)
 
 - Feature: incremental entry-slim for realtime SSE — reduces browser memory O(N²) → O(N) for long sessions (behind `ccv_sseSlim` localStorage flag)

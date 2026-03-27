@@ -10,7 +10,7 @@ import GitDiffView from './GitDiffView';
 import { extractToolResultText, getModelInfo, getSvgAvatar } from '../utils/helpers';
 import { renderMarkdown } from '../utils/markdown';
 import defaultModelAvatarUrl from '../img/default-model-avatar.svg';
-import { isSystemText, classifyUserContent, isMainAgent } from '../utils/contentFilter';
+import { isSystemText, classifyUserContent, isMainAgent, isTeammate } from '../utils/contentFilter';
 import { classifyRequest, formatRequestTag, formatTeammateLabel } from '../utils/requestType';
 import { buildChunksForAnswer } from '../utils/ptyChunkBuilder';
 import { isMobile } from '../env';
@@ -829,11 +829,81 @@ class ChatView extends React.Component {
     return renderedMessages;
   }
 
+  /**
+   * Fallback: 当 mainAgentSessions 为空时，从 requests 中提取 teammate entries 渲染。
+   * 解决 JSONL 截断后只剩 teammate entries 导致界面空白的问题。
+   */
+  _buildTeammateFallbackItems() {
+    const { requests, collapseToolResults, expandThinking, onViewRequest } = this.props;
+    if (!requests || requests.length === 0) return [];
+
+    // 按 teammate 名称分组，保持时间顺序，取最后一条（最完整）的 messages
+    const teammateMap = new Map(); // name → { messages, response, timestamp }
+    for (const req of requests) {
+      if (!isTeammate(req) || !req.body?.messages?.length) continue;
+      const name = req.teammate || 'teammate';
+      const existing = teammateMap.get(name);
+      // 同名 teammate 后到的 entry messages 更完整（增量累积），取最后一条
+      if (!existing || req.body.messages.length >= existing.messages.length) {
+        teammateMap.set(name, {
+          messages: req.body.messages,
+          response: req.response,
+          timestamp: req.timestamp,
+        });
+      }
+    }
+
+    if (teammateMap.size === 0) return [];
+
+    const modelInfo = null; // teammate 不需要 model 头像
+    const allItems = [];
+    let si = 0;
+    for (const [name, session] of teammateMap) {
+      if (si > 0) {
+        allItems.push(
+          <Divider key={`tm-div-${si}`} style={{ borderColor: '#333', margin: '16px 0' }}>
+            <Text className={styles.sessionDividerText}>{name}</Text>
+          </Divider>
+        );
+      } else {
+        allItems.push(
+          <Divider key={`tm-div-${si}`} style={{ borderColor: '#333', margin: '16px 0' }}>
+            <Text className={styles.sessionDividerText}>{name}</Text>
+          </Divider>
+        );
+      }
+      const msgs = this.renderSessionMessages(session.messages, `tm${si}`, modelInfo, {});
+      allItems.push(...msgs);
+
+      // 渲染 response content（如果有）
+      if (si === teammateMap.size - 1 && session.response?.body?.content) {
+        const respContent = session.response.body.content;
+        if (Array.isArray(respContent)) {
+          const lastItems = respContent
+            .filter(b => b.type === 'text' && b.text)
+            .map((b, bi) => (
+              <ChatMessage key={`tm-resp-${si}-${bi}`} role="assistant" content={[b]} collapseToolResults={collapseToolResults} expandThinking={expandThinking} onViewRequest={onViewRequest} onOpenFile={this.handleOpenToolFilePath} />
+            ));
+          if (lastItems.length > 0) {
+            this._lastResponseItems = lastItems;
+          }
+        }
+      }
+      si++;
+    }
+
+    return allItems;
+  }
+
   buildAllItems() {
     const { mainAgentSessions, requests, collapseToolResults, expandThinking, onViewRequest } = this.props;
     this._lastResponseItems = null;
     this._lastResponseAskQuestions = null;
-    if (!mainAgentSessions || mainAgentSessions.length === 0) return [];
+    if (!mainAgentSessions || mainAgentSessions.length === 0) {
+      // Fallback: 无 MainAgent 时，从 requests 提取 teammate entries 渲染其对话历史，
+      // 避免 JSONL 截断只剩 teammate 时界面完全空白。
+      return this._buildTeammateFallbackItems();
+    }
 
     // 增量扫描 requests（tsToIndex + modelName 增量，subAgentEntries 可按需全量重扫）
     const cache = this._reqScanCache;
@@ -1770,6 +1840,9 @@ class ChatView extends React.Component {
         const trackLeft = trackRect.left - wrapRect.left;
         const trackWidth = trackRect.width;
         el.style.left = (trackLeft + trackWidth * pctVal / 100) + 'px';
+        // indicator 高度跟随滚动内容总高度，而非可视区域高度，
+        // 确保 agent 行数多（overflow-y: auto 滚动）时竖线贯穿所有行。
+        el.style.height = wrap.scrollHeight + 'px';
       }
     });
   };
@@ -2390,6 +2463,10 @@ class ChatView extends React.Component {
     const noData = !mainAgentSessions || mainAgentSessions.length === 0;
 
     if (noData && !cliMode) {
+      // 初始 SSE 加载期间不显示"暂无对话"，避免 Empty→内容 的两阶段闪烁
+      if (this.props.fileLoading) {
+        return null;
+      }
       return (
         <div className={styles.centerEmpty}>
           <Empty description={t('ui.noChat')} />

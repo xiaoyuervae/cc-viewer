@@ -633,7 +633,7 @@
   padding: 8px 16px 4px;
   border-bottom: 1px solid #1a1a1a;
   position: relative;
-  max-height: 40%;
+  max-height: 120px;
   overflow-y: auto;
   flex-shrink: 0;
 }
@@ -704,7 +704,7 @@
 .teamGanttIndicator {
   position: absolute;
   top: 0;
-  bottom: 22px;
+  bottom: 0;
   width: 2px;
   background: #4a9eff;
   z-index: 10;

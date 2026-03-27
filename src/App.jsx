@@ -20,6 +20,7 @@ import { isMainAgent, isSystemText, classifyUserContent } from './utils/contentF
 import { classifyRequest } from './utils/requestType';
 import styles from './App.module.css';
 import { apiUrl } from './utils/apiUrl';
+import OpenFolderIcon from './components/OpenFolderIcon';
 import { saveEntries, loadEntries, clearEntries, getCacheMeta } from './utils/entryCache';
 import { reconstructEntries } from '../lib/delta-reconstructor.js';
 import { createEntrySlimmer, createIncrementalSlimmer } from './utils/entry-slim.js';
@@ -656,8 +657,9 @@ class App extends React.Component {
           // Claude Code 客户端偶尔发送只有 1-2 条消息的 mainAgent 瞬态请求。
           // 如果直接用它替换已有的大 session（300+ 条消息），会导致对话视图闪烁——
           // 大量 MainAgent 消息瞬间丢失，随后完整响应到达又恢复（331→2→331 反复交替）。
-          // 三重条件防止误杀：原 session 须较大(>10)、新消息极少(≤4)、且缩减超过 50%。
-          const isTransient = prevCount > 10 && messages.length <= 4 && messages.length < prevCount * 0.5;
+          // 三重条件防止误杀：原 session 须有一定量(>4)、新消息极少(≤4)、且缩减超过 50%。
+          // 注：阈值从 >10 降至 >4，保护对话早期（5-10 条消息）不受瞬态请求干扰。
+          const isTransient = prevCount > 4 && messages.length <= 4 && messages.length < prevCount * 0.5;
           if (isTransient) continue;
 
           for (let i = 0; i < messages.length; i++) {
@@ -782,8 +784,9 @@ class App extends React.Component {
     // Claude Code 客户端偶尔发送只有 1-2 条消息的 mainAgent 瞬态请求。
     // 如果直接用它替换已有的大 session（300+ 条消息），会导致对话视图闪烁——
     // 大量 MainAgent 消息瞬间丢失，随后完整响应到达又恢复（331→2→331 反复交替）。
-    // 三重条件防止误杀：原 session 须较大(>10)、新消息极少(≤4)、且消息数大幅缩减。
-    if (isNewConversation && newMessages.length <= 4 && prevMsgCount > 10) {
+    // 三重条件防止误杀：原 session 须有一定量(>4)、新消息极少(≤4)、且消息数大幅缩减。
+    // 注：阈值与 _flushPendingEntries 中的 isTransient 保持一致（>4）。
+    if (isNewConversation && newMessages.length <= 4 && prevMsgCount > 4) {
       return prevSessions;
     }
 
@@ -1786,6 +1789,7 @@ class App extends React.Component {
                     cliMode={false}
                     terminalVisible={false}
                     mobileChatVisible={this.state.mobileChatVisible}
+                    fileLoading={this.state.fileLoading}
                   />
                 </div>
               </ConfigProvider>
@@ -1801,7 +1805,7 @@ class App extends React.Component {
             </div>
             <div className={`${styles.mobileLogMgmtOverlay} ${this.state.mobileLogMgmtVisible ? styles.mobileLogMgmtOverlayVisible : ''}`}>
               <div className={styles.mobileLogMgmtHeader}>
-                <span className={styles.mobileLogMgmtTitle}><svg onClick={() => fetch('/api/open-log-dir', { method: 'POST' })} title={t('ui.openLogDir')} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer', opacity: 0.7, marginRight: 6, verticalAlign: 'middle' }}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>{t('ui.importLocalLogs')}</span>
+                <span className={styles.mobileLogMgmtTitle}><OpenFolderIcon apiEndpoint={apiUrl('/api/open-log-dir')} title={t('ui.openLogDir')} size={14} />{t('ui.importLocalLogs')}</span>
                 <button className={styles.mobileLogMgmtClose} onClick={() => this.setState({ mobileLogMgmtVisible: false, selectedLogs: new Set() })}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -2079,7 +2083,7 @@ class App extends React.Component {
               )
             )}
             <div style={{ display: viewMode === 'chat' ? 'flex' : 'none', height: '100%', flexDirection: 'column' }}>
-              <ChatView requests={filteredRequests} mainAgentSessions={mainAgentSessions} userProfile={this.state.userProfile} collapseToolResults={this.state.collapseToolResults} expandThinking={this.state.expandThinking} showThinkingSummaries={this.state.showThinkingSummaries} onViewRequest={this.handleViewRequest} scrollToTimestamp={this.state.chatScrollToTs} onScrollTsDone={this.handleScrollTsDone} cliMode={this._isLocalLog ? false : this.state.cliMode} terminalVisible={this._isLocalLog ? false : this.state.terminalVisible} onToggleTerminal={() => this.setState(prev => ({ terminalVisible: !prev.terminalVisible }))} pendingUploadPaths={this.state.pendingUploadPaths} onUploadPathsConsumed={this.handleUploadPathsConsumed} />
+              <ChatView requests={filteredRequests} mainAgentSessions={mainAgentSessions} userProfile={this.state.userProfile} collapseToolResults={this.state.collapseToolResults} expandThinking={this.state.expandThinking} showThinkingSummaries={this.state.showThinkingSummaries} onViewRequest={this.handleViewRequest} scrollToTimestamp={this.state.chatScrollToTs} onScrollTsDone={this.handleScrollTsDone} cliMode={this._isLocalLog ? false : this.state.cliMode} terminalVisible={this._isLocalLog ? false : this.state.terminalVisible} onToggleTerminal={() => this.setState(prev => ({ terminalVisible: !prev.terminalVisible }))} pendingUploadPaths={this.state.pendingUploadPaths} onUploadPathsConsumed={this.handleUploadPathsConsumed} fileLoading={this.state.fileLoading} />
             </div>
           </Layout.Content>
           <div className={styles.footer}>
@@ -2127,7 +2131,7 @@ class App extends React.Component {
         </Modal>
 
         <Modal
-          title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><svg onClick={() => fetch('/api/open-log-dir', { method: 'POST' })} title={t('ui.openLogDir')} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer', opacity: 0.7, flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>{t('ui.importLocalLogs')}</span>}
+          title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><OpenFolderIcon apiEndpoint={apiUrl('/api/open-log-dir')} title={t('ui.openLogDir')} size={16} />{t('ui.importLocalLogs')}</span>}
           open={this.state.importModalVisible}
           onCancel={this.handleCloseImportModal}
           footer={null}

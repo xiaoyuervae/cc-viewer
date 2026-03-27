@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { t } from '../i18n';
 import { apiUrl } from '../utils/apiUrl';
+import OpenFolderIcon from './OpenFolderIcon';
 import styles from './FileExplorer.module.css';
 
 const EXT_COLORS = {
@@ -270,7 +271,10 @@ export default function FileExplorer({ onClose, onFileClick, expandedPaths, onTo
   return (
     <div className={styles.fileExplorer}>
       <div className={styles.header}>
-        <span className={styles.headerTitle}>{t('ui.fileExplorer')}</span>
+        <span className={styles.headerTitle}>
+          <OpenFolderIcon apiEndpoint={apiUrl('/api/open-project-dir')} title={t('ui.openProjectDir')} size={14} />
+          {t('ui.fileExplorer')}
+        </span>
         <button className={styles.collapseBtn} onClick={onClose} title="Close">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="11 17 6 12 11 7"/>
