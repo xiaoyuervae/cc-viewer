@@ -1,5 +1,5 @@
 import React from 'react';
-import { Empty, Typography, Divider, Spin } from 'antd';
+import { Empty, Typography, Divider, Spin, Popover, Modal, Tooltip } from 'antd';
 import ChatMessage from './ChatMessage';
 import TerminalPanel, { uploadFileAndGetPath } from './TerminalPanel';
 import FileExplorer from './FileExplorer';
@@ -8,6 +8,8 @@ import ImageViewer from './ImageViewer';
 import GitChanges from './GitChanges';
 import GitDiffView from './GitDiffView';
 import { extractToolResultText, getModelInfo, getSvgAvatar } from '../utils/helpers';
+import { renderMarkdown } from '../utils/markdown';
+import defaultModelAvatarUrl from '../img/default-model-avatar.svg';
 import { isSystemText, classifyUserContent, isMainAgent } from '../utils/contentFilter';
 import { classifyRequest, formatRequestTag, formatTeammateLabel } from '../utils/requestType';
 import { buildChunksForAnswer } from '../utils/ptyChunkBuilder';
@@ -20,10 +22,91 @@ const { Text } = Typography;
 
 const QUEUE_THRESHOLD = 20;
 
+function nameToColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return `hsl(${((hash % 360) + 360) % 360}, 55%, 35%)`;
+}
+
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'webp']);
 function isImageFile(path) {
   const ext = (path || '').split('.').pop().toLowerCase();
   return IMAGE_EXTS.has(ext);
+}
+
+// 从 requests 中提取 Team 会话列表
+function extractTeamSessions(requests) {
+  const teams = [];
+  let currentTeamIdx = -1; // 当前唯一打开的 team 在 teams[] 中的 index
+
+  // 查找 TeamDelete 对应的 tool_result（在下一个 request 的 messages 中）
+  function findToolResult(toolUseId, fromRequestIdx) {
+    for (let j = fromRequestIdx + 1; j < requests.length && j <= fromRequestIdx + 3; j++) {
+      const msgs = requests[j]?.body?.messages;
+      if (!Array.isArray(msgs)) continue;
+      for (const msg of msgs) {
+        const blocks = msg.role === 'user' && Array.isArray(msg.content) ? msg.content : [];
+        for (const b of blocks) {
+          if (b.type === 'tool_result' && b.tool_use_id === toolUseId) {
+            return typeof b.content === 'string' ? b.content : JSON.stringify(b.content || '');
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function isDeleteSuccessful(resultText) {
+    if (!resultText) return false;
+    if (resultText.includes('"success":true') || resultText.includes('"success": true')) return true;
+    if (resultText.includes('Cleaned up')) return true;
+    if (resultText.includes('Cannot cleanup')) return false;
+    // 没有明确失败标记的默认视为成功
+    return true;
+  }
+
+  for (let i = 0; i < requests.length; i++) {
+    const req = requests[i];
+    const respContent = req.response?.body?.content;
+    if (!Array.isArray(respContent)) continue;
+    for (const block of respContent) {
+      if (block.type !== 'tool_use') continue;
+      const name = block.name;
+      const input = typeof block.input === 'string' ? (() => { try { return JSON.parse(block.input); } catch { return {}; } })() : (block.input || {});
+      if (name === 'TeamCreate') {
+        const teamName = input.team_name || input.teamName || 'unknown';
+        const ts = req.timestamp || req.response?.timestamp;
+        const team = { name: teamName, startTime: ts, endTime: null, requestIndex: i, endRequestIndex: null, taskCount: 0, teammateCount: 0, _teammates: new Set() };
+        teams.push(team);
+        currentTeamIdx = teams.length - 1;
+      } else if (name === 'TeamDelete') {
+        if (currentTeamIdx < 0) continue;
+        const resultText = findToolResult(block.id, i);
+        if (!isDeleteSuccessful(resultText)) continue; // 失败的 TeamDelete 不关闭 team
+        const ts = req.timestamp || req.response?.timestamp;
+        teams[currentTeamIdx].endTime = ts;
+        teams[currentTeamIdx].endRequestIndex = i;
+        currentTeamIdx = -1; // 清理：team 已关闭
+      } else if (name === 'TaskCreate' || name === 'TaskUpdate') {
+        if (currentTeamIdx >= 0) teams[currentTeamIdx].taskCount++;
+      } else if (name === 'Agent') {
+        const teamName = input.team_name || input.teamName;
+        const agentName = input.name || '';
+        let targetIdx = -1;
+        if (teamName) {
+          // 按 team_name 精确匹配
+          targetIdx = teams.findIndex(t => t.name === teamName && !t.endTime);
+        }
+        // fallback：如果没有 team_name 但有唯一打开的 team
+        if (targetIdx < 0 && currentTeamIdx >= 0) targetIdx = currentTeamIdx;
+        if (targetIdx >= 0) {
+          const t = teams[targetIdx];
+          if (!t._teammates.has(agentName)) { t._teammates.add(agentName); t.teammateCount++; }
+        }
+      }
+    }
+  }
+  return teams;
 }
 
 const MUTATING_CMD_RE = /\b(rm|mkdir|mv|cp|touch|chmod|chown|ln|git\s+(checkout|reset|stash|merge|rebase|cherry-pick|restore|clean|rm)|npm\s+(install|uninstall|ci)|yarn\s+(add|remove)|pnpm\s+(add|remove|install)|pip\s+install|tar|unzip|curl\s+-[^\s]*o|wget)\b|[^>]>(?!>)|>>/;
@@ -267,8 +350,18 @@ class ChatView extends React.Component {
       gitChangesRefresh: 0,
       roleFilterOpen: false,
       roleFilterHidden: new Set(),
+      teamModalSession: null,
+      teamGanttOpen: true,
+      activeAgentCard: null,
     };
     this._processedToolIds = new Set();
+    this._teamModalBodyRef = React.createRef();
+    this._ganttIndicatorRef = React.createRef();
+    this._teamTotalStart = 0;
+    this._teamTotalEnd = 0;
+    this._teamScrollRaf = null;
+    this._teamModalDataCache = null;
+    this._ganttTrackEl = null; // 缓存 querySelector 结果
     this._projectDirCache = null; // 缓存项目目录绝对路径
     this._fileRefreshTimer = null;
     this._gitRefreshTimer = null;
@@ -476,6 +569,9 @@ class ChatView extends React.Component {
     if (this._waitForWsTimer) clearTimeout(this._waitForWsTimer);
     if (this._waitForPtyTimer) clearTimeout(this._waitForPtyTimer);
     if (this._planFeedbackTimer) clearTimeout(this._planFeedbackTimer);
+    if (this._teamScrollRaf) cancelAnimationFrame(this._teamScrollRaf);
+    this._ganttTrackEl = null;
+    this._teamModalDataCache = null;
     this._unbindScrollFade();
     this._unbindStickyScroll();
     if (this._inputWs) {
@@ -1595,6 +1691,698 @@ class ChatView extends React.Component {
     localStorage.setItem('cc-viewer-terminal-width', terminalPx.toString());
   }
 
+  _getTeamSessions() {
+    const requests = this.props.requests;
+    if (this._teamSessionsCache && this._teamSessionsCache.requests === requests) {
+      return this._teamSessionsCache.result;
+    }
+    const result = extractTeamSessions(requests);
+    this._teamSessionsCache = { requests, result };
+    return result;
+  }
+
+  renderTeamButton() {
+    const teamSessions = this._getTeamSessions();
+    if (teamSessions.length === 0) return null;
+    const content = (
+      <div className={styles.teamPopover}>
+        <div className={styles.teamPopoverTitle}>{t('ui.teamSessions')} ({teamSessions.length})</div>
+        {teamSessions.map((team, i) => {
+          const time = team.startTime ? new Date(team.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          const status = team.endTime ? '✓' : '●';
+          const statusColor = team.endTime ? '#52c41a' : '#faad14';
+          return (
+            <div key={i} className={styles.teamPopoverItem} onClick={() => this.setState({ teamModalSession: team })}>
+              <span style={{ color: statusColor, marginRight: 6, fontSize: 10 }}>{status}</span>
+              <span className={styles.teamPopoverName}>{team.name}</span>
+              <span className={styles.teamPopoverMeta}>{team.teammateCount}p · {team.taskCount}t</span>
+              <span className={styles.teamPopoverTime}>{time}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+    const hasActiveTeam = teamSessions.some(s => !s.endTime);
+    return (
+      <Popover content={content} trigger="hover" placement="rightTop" overlayInnerStyle={{ background: '#1a1a1a', border: '1px solid #333', padding: 0 }}>
+        <button className={styles.navBtn} title={t('ui.teamSessions')} style={{ position: 'relative' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          {hasActiveTeam && <span className={styles.teamActiveSpinner} />}
+        </button>
+      </Popover>
+    );
+  }
+
+  onTeamModalScroll = () => {
+    if (this._teamScrollRaf) return;
+    this._teamScrollRaf = requestAnimationFrame(() => {
+      this._teamScrollRaf = null;
+      const container = this._teamModalBodyRef.current;
+      if (!container) return;
+      const containerTop = container.getBoundingClientRect().top;
+      let closestTs = null;
+      for (const child of container.children) {
+        const ts = child.getAttribute('data-timestamp');
+        if (!ts) continue;
+        const rect = child.getBoundingClientRect();
+        if (rect.bottom > containerTop) { closestTs = ts; break; }
+      }
+      if (!closestTs) return;
+      const tsMs = new Date(closestTs).getTime();
+      const total = this._teamTotalEnd - this._teamTotalStart || 1;
+      const pctVal = Math.max(0, Math.min(100, (tsMs - this._teamTotalStart) / total * 100));
+      const el = this._ganttIndicatorRef.current;
+      if (!el) return;
+      // 缓存 track 元素引用，避免每帧 querySelector
+      if (!this._ganttTrackEl || !this._ganttTrackEl.isConnected) {
+        this._ganttTrackEl = el.parentElement?.querySelector('[class*="teamGanttTrack"]');
+      }
+      const wrap = el.parentElement;
+      const track = this._ganttTrackEl;
+      if (track) {
+        const wrapRect = wrap.getBoundingClientRect();
+        const trackRect = track.getBoundingClientRect();
+        const trackLeft = trackRect.left - wrapRect.left;
+        const trackWidth = trackRect.width;
+        el.style.left = (trackLeft + trackWidth * pctVal / 100) + 'px';
+      }
+    });
+  };
+
+  renderTeamGantt(teamAgents, teamTotalStart, teamTotalEnd, leadSegments) {
+    if (!teamAgents || teamAgents.length === 0) return null;
+    const totalMs = teamTotalEnd - teamTotalStart || 1;
+    const pct = (ms) => ((ms - teamTotalStart) / totalMs * 100).toFixed(2);
+    const widthPct = (start, end) => (((end - start) / totalMs) * 100).toFixed(2);
+    // 时间轴标记（均分 5 个刻度）
+    const ticks = [];
+    for (let t = 0; t <= 4; t++) {
+      const ms = teamTotalStart + (totalMs * t / 4);
+      const d = new Date(ms);
+      ticks.push({ pct: (t * 25), label: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
+    }
+    return (
+      <div>
+        <div
+          className={styles.teamGanttToggle}
+          onClick={() => this.setState(prev => ({ teamGanttOpen: !prev.teamGanttOpen }))}
+        >
+          {this.state.teamGanttOpen ? '▼' : '▶'} Timeline
+        </div>
+        {this.state.teamGanttOpen && (
+          <div className={styles.teamGanttWrap}>
+            {/* team-lead 行：分段显示活动 */}
+            <div className={styles.teamGanttRow}>
+              <div className={styles.teamGanttLabel} style={{ color: '#196ae1', fontWeight: 600 }}>team-lead</div>
+              <div className={styles.teamGanttTrack}>
+                {leadSegments && leadSegments.map((seg, i) => {
+                  const bgColor = seg.label === 'thinking' ? '#722ed1' : seg.label === 'report-received' ? '#52c41a' : '#196ae1';
+                  const op = seg.label === 'idle' ? 0.15 : seg.label === 'text' ? 0.5 : seg.label === 'thinking' ? 0.4 : seg.label === 'report-received' ? 0.6 : 0.7;
+                  return <div key={`b${i}`} className={styles.teamGanttBar} title={seg.label} style={{
+                    left: pct(seg.start) + '%', width: widthPct(seg.start, seg.end) + '%',
+                    background: bgColor, opacity: op,
+                  }} />;
+                })}
+                {leadSegments && leadSegments.filter(s => s.label !== 'idle').map((seg, i) => {
+                  const tips = { create: 'Team Created', tasks: 'Tasks Created', spawn: 'Agents Spawned', msg: 'SendMessage', cleanup: 'Team Cleanup', text: 'Status Update', thinking: 'Thinking...', 'report-received': 'Report Received' };
+                  const dColor = seg.label === 'thinking' ? '#722ed1' : seg.label === 'report-received' ? '#52c41a' : '#196ae1';
+                  return <Tooltip key={`d${i}`} title={tips[seg.label] || seg.label}><span className={styles.teamGanttDiamond} style={{ left: pct(seg.start) + '%', color: dColor }}>◆</span></Tooltip>;
+                })}
+              </div>
+            </div>
+            {/* 各 agent 行：按事件节点分段显示 */}
+            {teamAgents.map((ag, i) => (
+              <div key={i} className={styles.teamGanttRow}>
+                <div className={styles.teamGanttLabel} style={{ color: '#eee' }}>{ag.name}</div>
+                <div className={styles.teamGanttTrack}>
+                  {ag.segments.map((seg, si) => {
+                    const isTool = seg.label.startsWith('tool:');
+                    const op = seg.label === 'spawn' ? 0.2 : seg.label === 'claim' ? 0.7 : seg.label === 'done' ? 0.4 : seg.label === 'shutdown' ? 0.1 : seg.label === 'report' ? 0.9 : isTool ? 0.5 : 0.5;
+                    return <div key={`b${si}`} className={styles.teamGanttBar} title={seg.label} style={{
+                      left: pct(seg.start) + '%',
+                      width: widthPct(seg.start, seg.end) + '%',
+                      background: '#eee', opacity: op,
+                    }} />;
+                  })}
+                  {ag.events.filter(ev => !ev.label.startsWith('tool:')).map((ev, ei) => {
+                    const tips = { spawn: 'Agent Spawned', claim: 'Task Claimed', done: 'Task Completed', shutdown: 'Shutdown Request', 'msg-in': 'Message Received', report: 'Report Submitted' };
+                    const tip = tips[ev.label] || ev.label;
+                    return <Tooltip key={`d${ei}`} title={`${ag.name}: ${tip}`}><span className={styles.teamGanttDiamond} style={{ left: pct(ev.ts) + '%', color: '#eee' }}>◆</span></Tooltip>;
+                  })}
+                </div>
+              </div>
+            ))}
+            {/* 时间轴 */}
+            <div className={styles.teamGanttRow} style={{ marginTop: 2 }}>
+              <div className={styles.teamGanttLabel} />
+              <div className={styles.teamGanttTrack} style={{ background: 'transparent', height: 16, position: 'relative' }}>
+                {ticks.map((tk, i) => (
+                  <span key={i} style={{ position: 'absolute', left: tk.pct + '%', transform: 'translateX(-50%)', fontSize: 9, color: '#555', whiteSpace: 'nowrap' }}>{tk.label}</span>
+                ))}
+              </div>
+            </div>
+            {/* TaskUpdate 箭头：teammate 完成任务后指向目标（通常是 team-lead） */}
+            {(() => {
+              // 行高计算：每行 22px height + 3px margin-bottom = 25px，team-lead 是第 0 行
+              const rowH = 25;
+              const leadY = rowH / 2; // team-lead 行中心 y
+              const arrows = [];
+              teamAgents.forEach((ag, ai) => {
+                const agentY = (ai + 1) * rowH + rowH / 2;
+                // 完成箭头：用 doneTime（不依赖 events，因为 TaskUpdate completed 可能无 owner）
+                if (ag.doneTime) {
+                  const doneMs = new Date(ag.doneTime).getTime();
+                  arrows.push({ key: `${ai}-done`, xPct: pct(doneMs), fromY: agentY, toY: leadY, color: '#faad14' });
+                }
+                // 报告箭头：用 events 中的 report 事件
+                ag.events.filter(ev => ev.label === 'report').forEach((ev, ei) => {
+                  arrows.push({ key: `${ai}-rpt-${ei}`, xPct: pct(ev.ts), fromY: agentY, toY: leadY, color: '#52c41a' });
+                });
+              });
+              if (arrows.length === 0) return null;
+              const totalH = (teamAgents.length + 2) * rowH; // +2 for lead + time axis
+              return (
+                <svg className={styles.teamGanttArrows} style={{ height: totalH }}>
+                  <defs>
+                    <marker id="gantt-arrow-yellow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                      <path d="M0,1 L7,4 L0,7 Z" fill="#faad14" />
+                    </marker>
+                    <marker id="gantt-arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                      <path d="M0,1 L7,4 L0,7 Z" fill="#52c41a" />
+                    </marker>
+                  </defs>
+                  {arrows.map(a => (
+                    <line key={a.key}
+                      x1={a.xPct + '%'} y1={a.fromY}
+                      x2={a.xPct + '%'} y2={a.toY + 5}
+                      stroke={a.color} strokeWidth="1.5" strokeDasharray="4,3" opacity="0.7"
+                      markerEnd={a.color === '#52c41a' ? 'url(#gantt-arrow-green)' : 'url(#gantt-arrow-yellow)'}
+                    />
+                  ))}
+                </svg>
+              );
+            })()}
+            {/* 滚动位置指示线 — 跨越所有 track 行 */}
+            <div ref={this._ganttIndicatorRef} className={styles.teamGanttIndicator} style={{ left: '110px' }} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Memoized team modal data — only recompute when team or requests change
+  _getTeamModalData(team, requests, mainAgentSessions) {
+    const cache = this._teamModalDataCache;
+    if (cache && cache.team === team && cache.requests === requests && cache.mainAgentSessions === mainAgentSessions) return cache.result;
+
+    const startIdx = team.requestIndex;
+    const endIdx = team.endRequestIndex != null ? team.endRequestIndex + 1 : requests.length;
+    const teamRequests = requests.slice(startIdx, endIdx);
+    const teamStartTime = team.startTime;
+    const teamEndTime = team.endTime || (requests[endIdx - 1]?.response?.timestamp || requests[endIdx - 1]?.timestamp);
+
+    // 构建 tsToIndex 和 modelInfo
+    const tsToIndex = {};
+    let modelName = null;
+    for (let i = startIdx; i < endIdx && i < requests.length; i++) {
+      const req = requests[i];
+      if (req.timestamp) tsToIndex[req.timestamp] = i;
+      if (req.body?.model) modelName = req.body.model;
+    }
+    const modelInfo = getModelInfo(modelName);
+
+    // 用户消息提取：展示触发 team 的用户 prompt，帮助理解 team 要解决什么问题。
+    // 用户 prompt 不属于 Agent Team 讨论本身，但对理解上下文至关重要。
+    //
+    // 数据源优先级：
+    // 1. mainAgentSessions（累积会话历史，有 _timestamp）— 覆盖大多数情况
+    // 2. TeamCreate 所在 request 的 body.messages（直接提取）— 覆盖 session 未包含的情况
+    // 3. 首条 assistant 响应文本 — 兜底：/clear 后 messages=[] 时，assistant 会概述要做什么
+    const entries = [];
+    let hasUserMsg = false;
+
+    // 策略 1：从 mainAgentSessions 按时间范围提取
+    if (mainAgentSessions) {
+      let closestBeforeTs = null;
+      for (const session of mainAgentSessions) {
+        for (const msg of session.messages || []) {
+          const ts = msg._timestamp;
+          if (!ts || msg.role !== 'user') continue;
+          if (ts <= teamStartTime && (!closestBeforeTs || ts > closestBeforeTs)) {
+            closestBeforeTs = ts;
+          }
+        }
+      }
+      const effectiveStart = closestBeforeTs || teamStartTime;
+      for (const session of mainAgentSessions) {
+        for (const msg of session.messages || []) {
+          const ts = msg._timestamp;
+          if (!ts || ts < effectiveStart) continue;
+          if (teamEndTime && ts > teamEndTime) continue;
+          if (msg.role !== 'user') continue;
+          const content = msg.content;
+          if (Array.isArray(content)) {
+            const { textBlocks } = classifyUserContent(content);
+            for (const tb of textBlocks) {
+              if (tb.text && tb.text.trim()) {
+                entries.push({ type: 'user', text: tb.text, timestamp: ts });
+                hasUserMsg = true;
+              }
+            }
+          } else if (typeof content === 'string' && !isSystemText(content)) {
+            entries.push({ type: 'user', text: content, timestamp: ts });
+            hasUserMsg = true;
+          }
+        }
+      }
+    }
+
+    // 策略 2：从 TeamCreate request 的 body.messages 直接提取
+    if (!hasUserMsg) {
+      const tcReq = requests[team.requestIndex];
+      const tcMsgs = tcReq?.body?.messages || [];
+      for (let m = tcMsgs.length - 1; m >= 0; m--) {
+        if (tcMsgs[m].role !== 'user') continue;
+        const c = tcMsgs[m].content;
+        if (Array.isArray(c)) {
+          const { textBlocks } = classifyUserContent(c);
+          for (const tb of textBlocks) {
+            if (tb.text && tb.text.trim()) {
+              entries.push({ type: 'user', text: tb.text, timestamp: teamStartTime });
+              hasUserMsg = true;
+            }
+          }
+        } else if (typeof c === 'string' && !isSystemText(c)) {
+          entries.push({ type: 'user', text: c, timestamp: teamStartTime });
+          hasUserMsg = true;
+        }
+        if (hasUserMsg) break;
+      }
+    }
+
+    // 策略 3 兜底：/clear 后 messages=[] 时，用首条 assistant 文本作为上下文
+    if (!hasUserMsg) {
+      for (let i = 0; i < teamRequests.length; i++) {
+        const resp = teamRequests[i].response?.body?.content;
+        if (!Array.isArray(resp)) continue;
+        for (const block of resp) {
+          if (block.type === 'text' && block.text && block.text.trim()) {
+            entries.push({ type: 'context', text: block.text.trim(), timestamp: teamRequests[i].response?.timestamp || teamRequests[i].timestamp });
+            hasUserMsg = true;
+            break;
+          }
+        }
+        if (hasUserMsg) break;
+      }
+    }
+
+    // 收集 assistant + sub-agent 条目
+    for (let i = 0; i < teamRequests.length; i++) {
+      const req = teamRequests[i];
+      const respContent = req.response?.body?.content;
+      if (!Array.isArray(respContent) || respContent.length === 0) continue;
+      const cls = classifyRequest(req, teamRequests[i + 1]);
+      const isMA = isMainAgent(req);
+      const isSub = cls.type === 'SubAgent' || cls.type === 'Teammate';
+
+      if (isMA) {
+        entries.push({ type: 'assistant', content: respContent, timestamp: req.response?.timestamp || req.timestamp, requestIndex: startIdx + i, modelInfo });
+      } else if (isSub) {
+        const subToolResultMap = {};
+        const msgs = req.body?.messages || [];
+        for (const msg of msgs) {
+          if (msg.role === 'tool_result' || (msg.role === 'user' && Array.isArray(msg.content))) {
+            const blocks = Array.isArray(msg.content) ? msg.content : [msg];
+            for (const b of blocks) {
+              if (b.type === 'tool_result' && b.tool_use_id) {
+                subToolResultMap[b.tool_use_id] = { resultText: typeof b.content === 'string' ? b.content : JSON.stringify(b.content) };
+              }
+            }
+          }
+        }
+        entries.push({
+          type: 'sub-agent',
+          content: respContent,
+          toolResultMap: subToolResultMap,
+          label: cls.type === 'Teammate' ? formatTeammateLabel(cls.subType, req.body?.model) : formatRequestTag(cls.type, cls.subType),
+          isTeammate: cls.type === 'Teammate',
+          timestamp: req.timestamp,
+          requestIndex: startIdx + i,
+        });
+      }
+    }
+
+    // 按时间排序
+    entries.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+
+    // 提取每个 agent 的时间数据（用于状态卡片和甘特图）
+    const palette = ['#1668dc', '#52c41a', '#faad14', '#eb2f96', '#722ed1', '#13c2c2', '#fa541c', '#2f54eb'];
+    const teamAgents = [];
+    const agentMap = new Map(); // name → index in teamAgents
+    const teamTotalStart = new Date(teamStartTime).getTime();
+    const teamTotalEnd = new Date(teamEndTime || Date.now()).getTime();
+    // team-lead 活动段：[{ start, end, label, color }]
+    const leadSegments = [];
+    let lastLeadTs = teamTotalStart;
+    const _taskCreateSubjects = new Map(); // taskId → subject
+    const _taskOwnerMap = new Map(); // taskId → owner name (用于 completed 事件反查)
+    let _taskCreateCounter = 1;
+
+    for (let i = 0; i < teamRequests.length; i++) {
+      const req = teamRequests[i];
+      const resp = req.response?.body?.content;
+      if (!Array.isArray(resp)) continue;
+      const tsStr = req.response?.timestamp || req.timestamp;
+      const ts = tsStr;
+      const tsMs = new Date(tsStr).getTime();
+      // 检测 team-lead 活动（MainAgent 请求中的关键 tool_use）
+      const isMA = isMainAgent(req);
+      for (const block of resp) {
+        if (block.type !== 'tool_use') continue;
+        const n = block.name;
+        const inp = typeof block.input === 'string' ? (() => { try { return JSON.parse(block.input); } catch { return {}; } })() : (block.input || {});
+        if (n === 'Agent' && inp.name) {
+          const idx = teamAgents.length;
+          teamAgents.push({
+            name: inp.name,
+            color: palette[idx % palette.length],
+            type: inp.subagent_type?.split(':').pop() || '',
+            spawnTime: ts,
+            claimTime: null,
+            doneTime: null,
+            shutdownTime: null,
+            taskSubject: null,
+            // 细粒度事件节点（用于甘特分段）
+            events: [{ ts: tsMs, label: 'spawn' }],
+          });
+          agentMap.set(inp.name, idx);
+        } else if (n === 'TaskCreate') {
+          // Track task subjects for later association (normalize taskId to string)
+          if (inp.subject) {
+            const tId = String(inp.taskId || _taskCreateCounter++);
+            _taskCreateSubjects.set(tId, inp.subject);
+          }
+        } else if (n === 'TaskUpdate') {
+          const owner = inp.owner;
+          const taskId = inp.taskId != null ? String(inp.taskId) : null;
+          // 策略：多路径查找 taskId 对应的 agent
+          // 1. owner 直接匹配 agentMap
+          // 2. _taskOwnerMap 反查（之前记录的 taskId→owner）
+          // 3. 按 taskId 顺序匹配 agent（task #1→agent[0], #2→agent[1]...）
+
+          // 先记录 owner（如果有的话）
+          if (owner && taskId) _taskOwnerMap.set(taskId, owner);
+
+          let targetAg = null;
+          if (owner && agentMap.has(owner)) {
+            targetAg = teamAgents[agentMap.get(owner)];
+          } else if (taskId) {
+            const prevOwner = _taskOwnerMap.get(taskId);
+            if (prevOwner && agentMap.has(prevOwner)) {
+              targetAg = teamAgents[agentMap.get(prevOwner)];
+            } else {
+              // 兜底：按 taskId 数字顺序匹配 agent 索引（task #1→agent[0]）
+              const taskNum = parseInt(taskId, 10);
+              if (taskNum > 0 && taskNum <= teamAgents.length) {
+                targetAg = teamAgents[taskNum - 1];
+                _taskOwnerMap.set(taskId, targetAg.name);
+              }
+            }
+          }
+          if (targetAg) {
+            if (inp.status === 'in_progress' && !targetAg.claimTime) {
+              targetAg.claimTime = ts;
+              targetAg.events.push({ ts: tsMs, label: 'claim' });
+            }
+            if (inp.status === 'completed' && !targetAg.doneTime) {
+              targetAg.doneTime = ts;
+              targetAg.events.push({ ts: tsMs, label: 'done' });
+            }
+            if (taskId && _taskCreateSubjects.has(taskId) && !targetAg.taskSubject) {
+              targetAg.taskSubject = _taskCreateSubjects.get(taskId);
+            }
+          }
+        } else if (n === 'SendMessage') {
+          if (inp.message?.type === 'shutdown_request' && inp.to && agentMap.has(inp.to)) {
+            const ag = teamAgents[agentMap.get(inp.to)];
+            ag.shutdownTime = ts;
+            ag.events.push({ ts: tsMs, label: 'shutdown' });
+          } else if (inp.message?.type === 'shutdown_response' && agentMap.has(inp.to === 'team-lead' ? '' : inp.to)) {
+            // skip
+          } else if (inp.to && inp.to !== 'team-lead' && agentMap.has(inp.to)) {
+            // lead → agent message
+            teamAgents[agentMap.get(inp.to)].events.push({ ts: tsMs, label: 'msg-in' });
+          } else if (inp.to === 'team-lead') {
+            // agent → lead report: push a generic lead segment
+            if (typeof inp.message === 'string' || (inp.message && !inp.message.type)) {
+              if (tsMs > lastLeadTs) {
+                leadSegments.push({ start: lastLeadTs, end: tsMs, label: 'report-received', color: '#52c41a' });
+                lastLeadTs = tsMs;
+              }
+            }
+          }
+        }
+        // team-lead 关键事件段
+        if (isMA && (n === 'TeamCreate' || n === 'TaskCreate' || n === 'Agent' || n === 'SendMessage' || n === 'TeamDelete')) {
+          const label = n === 'TeamCreate' ? 'create' : n === 'TaskCreate' ? 'tasks' : n === 'Agent' ? 'spawn' : n === 'SendMessage' ? 'msg' : 'cleanup';
+          if (tsMs > lastLeadTs) {
+            leadSegments.push({ start: lastLeadTs, end: tsMs, label, color: n === 'TeamDelete' ? '#52c41a' : n === 'SendMessage' ? '#ff4d4f' : '#1668dc' });
+            lastLeadTs = tsMs;
+          }
+        }
+      }
+      // Lead text and thinking events (scan non-tool_use blocks in MainAgent responses)
+      if (isMA) {
+        for (const block of resp) {
+          if (block.type === 'text' && block.text) {
+            if (tsMs > lastLeadTs) {
+              leadSegments.push({ start: lastLeadTs, end: tsMs, label: 'text', color: '#196ae1' });
+              lastLeadTs = tsMs;
+            }
+          } else if (block.type === 'thinking') {
+            if (tsMs > lastLeadTs) {
+              leadSegments.push({ start: lastLeadTs, end: tsMs, label: 'thinking', color: '#722ed1' });
+              lastLeadTs = tsMs;
+            }
+          }
+        }
+      }
+    }
+    // Second pass: teammate own tool calls (non-MainAgent requests)
+    for (let i = 0; i < teamRequests.length; i++) {
+      const req = teamRequests[i];
+      if (isMainAgent(req)) continue;
+      const resp = req.response?.body?.content;
+      if (!Array.isArray(resp)) continue;
+      const tsStr = req.response?.timestamp || req.timestamp;
+      const tsMs = new Date(tsStr).getTime();
+      const cls = classifyRequest(req, teamRequests[i + 1]);
+      const label = cls.type === 'Teammate' ? cls.subType : null;
+      if (label) {
+        let agIdx = agentMap.has(label) ? agentMap.get(label) : undefined;
+        // Fallback: check if any agent name is contained in the label
+        if (agIdx === undefined) {
+          for (const [name, idx] of agentMap) {
+            if (label.includes(name) || name.includes(label)) { agIdx = idx; break; }
+          }
+        }
+        if (agIdx !== undefined) {
+          const ag = teamAgents[agIdx];
+          for (const block of resp) {
+            if (block.type === 'tool_use' && block.name) {
+              ag.events.push({ ts: tsMs, label: 'tool:' + block.name });
+            }
+          }
+        }
+      }
+    }
+
+    // 提取 <teammate-message> 报告内容（在主 agent 的 body.messages 中）
+    const teammateMessageRe = /<teammate-message\s+teammate_id="([^"]+)"[^>]*summary="([^"]*)"[^>]*>([\s\S]*?)<\/teammate-message>/g;
+    const seenTmMsg = new Set(); // 去重：同一 teammate-message 会出现在多个请求的累积 messages 中
+    teamAgents.forEach(ag => { ag.teammateMessages = []; });
+    for (let i = 0; i < teamRequests.length; i++) {
+      const req = teamRequests[i];
+      const msgs = req.body?.messages || [];
+      for (const m of msgs) {
+        if (m.role !== 'user' || !Array.isArray(m.content)) continue;
+        for (const b of m.content) {
+          if (b.type !== 'text' || !b.text) continue;
+          let match;
+          teammateMessageRe.lastIndex = 0;
+          while ((match = teammateMessageRe.exec(b.text)) !== null) {
+            const [, tid, summary, content] = match;
+            if (tid === 'system' || tid === 'team-lead') continue;
+            const dedupKey = tid + '|' + summary + '|' + content.trim().slice(0, 100);
+            if (seenTmMsg.has(dedupKey)) continue;
+            seenTmMsg.add(dedupKey);
+            // 匹配到 agent，同时推入 entries 以在对话流中显示
+            for (const ag of teamAgents) {
+              if (tid === ag.name || tid.includes(ag.name) || ag.name.includes(tid)) {
+                if (summary && content.trim()) {
+                  ag.teammateMessages.push({ summary, content: content.trim() });
+                  const reqTs = req.timestamp || req.response?.timestamp;
+                  entries.push({ type: 'teammate-report', agentName: ag.name, agentColor: nameToColor(ag.name), summary, content: content.trim(), timestamp: reqTs });
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 闭合 lead 最后一段
+    if (lastLeadTs < teamTotalEnd) {
+      leadSegments.push({ start: lastLeadTs, end: teamTotalEnd, label: 'idle', color: '#333' });
+    }
+
+    // 从事件节点构建每个 agent 的分段 + 计算持续时间
+    const segColors = { spawn: '#555', claim: '#faad14', done: '#52c41a', shutdown: '#ff4d4f', 'msg-in': '#1668dc', report: '#52c41a', 'report-received': '#52c41a', text: '#196ae1', thinking: '#722ed1' };
+    teamAgents.forEach(ag => {
+      const start = new Date(ag.spawnTime).getTime();
+      const end = new Date(ag.doneTime || ag.shutdownTime || teamEndTime || Date.now()).getTime();
+      ag.duration = end - start;
+      // 按时间排序事件，构建相邻段
+      ag.events.sort((a, b) => a.ts - b.ts);
+      ag.segments = [];
+      for (let e = 0; e < ag.events.length; e++) {
+        const ev = ag.events[e];
+        const nextTs = ag.events[e + 1]?.ts || (ag.shutdownTime ? new Date(ag.shutdownTime).getTime() : teamTotalEnd);
+        ag.segments.push({ start: ev.ts, end: nextTs, label: ev.label, color: segColors[ev.label] || (ev.label.startsWith('tool:') ? '#888' : ag.color) });
+      }
+    });
+
+    const result = { entries, teamAgents, leadSegments, teamTotalStart, teamTotalEnd, modelInfo, teamRequests };
+    this._teamModalDataCache = { team, requests, mainAgentSessions, result };
+    return result;
+  }
+
+  renderTeamModal() {
+    const team = this.state.teamModalSession;
+    if (!team) return null;
+    const { requests, mainAgentSessions, collapseToolResults, expandThinking } = this.props;
+    const { entries, teamAgents, leadSegments, teamTotalStart, teamTotalEnd, modelInfo, teamRequests } = this._getTeamModalData(team, requests, mainAgentSessions);
+
+    // 存储时间范围供 scroll handler 使用
+    this._teamTotalStart = teamTotalStart;
+    this._teamTotalEnd = teamTotalEnd;
+
+    return (
+      <Modal
+        open
+        onCancel={() => { this._ganttTrackEl = null; this.setState({ teamModalSession: null }); }}
+        footer={null}
+        closable
+        maskClosable
+        zIndex={1100}
+        width="calc(100vw - 80px)"
+        title={<span style={{ color: '#e5e5e5', fontSize: 15 }}>Team: {team.name}</span>}
+        styles={{
+          header: { background: '#111', borderBottom: '1px solid #2a2a2a', padding: '12px 20px' },
+          body: { background: '#0a0a0a', height: 'calc(100vh - 160px)', overflow: 'hidden', padding: 0 },
+          mask: { background: 'rgba(0,0,0,0.7)' },
+          content: { background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, padding: 0 },
+        }}
+        centered
+      >
+        <div className={styles.teamModalLayout}>
+          {/* Left: Agent Cards */}
+          <div className={styles.teamAgentCards}>
+            <div className={styles.teamAgentCard} style={{ borderLeftColor: '#196ae1' }}>
+              <div className={styles.teamAgentCardHeader}>
+                {modelInfo?.svg
+                  ? <div className={styles.teamAgentAvatar} style={{ background: modelInfo.color || '#6b21a8' }} dangerouslySetInnerHTML={{ __html: modelInfo.svg }} />
+                  : <img src={defaultModelAvatarUrl} className={styles.teamAgentAvatar} alt="lead" />
+                }
+                <div className={styles.teamAgentName}>team-lead</div>
+              </div>
+              <div className={styles.teamAgentType}>orchestrator</div>
+              <div className={styles.teamAgentStatus} style={{ color: team.endTime ? '#52c41a' : '#faad14' }}>
+                {team.endTime ? '✓ done' : '● active'}
+              </div>
+            </div>
+            {teamAgents.map((ag, i) => {
+              const isDone = !!ag.doneTime;
+              const durSec = Math.round(ag.duration / 1000);
+              const durStr = durSec >= 60 ? `${Math.floor(durSec/60)}m${durSec%60}s` : `${durSec}s`;
+              // 该 teammate 的消息（从 entries 中过滤）
+              const agentMessages = entries.filter(e => e.type === 'sub-agent' && e.label && e.label.includes(ag.name));
+              const popContent = (
+                <div className={styles.teamAgentPopover}>
+                  {ag.teammateMessages && ag.teammateMessages.length > 0 && (
+                    <div className={styles.teamAgentPopTeammateMsg}>
+                      {ag.teammateMessages.map((tm, ti) => (
+                        <div key={ti}>
+                          {tm.summary && <div className={styles.teamAgentPopTmSummary}>{tm.summary}</div>}
+                          <div className={`${styles.teamAgentPopTmContent} chat-md`} dangerouslySetInnerHTML={{ __html: renderMarkdown(tm.content.length > 3000 ? tm.content.slice(0, 3000) + '\n\n...' : tm.content) }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {ag.taskSubject && <div className={styles.teamAgentPopTask}>{ag.taskSubject}</div>}
+                  {agentMessages.length > 0 ? agentMessages.map((msg, mi) => {
+                    // 提取 text 内容
+                    const texts = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+                    if (!texts.trim()) return null;
+                    return <div key={mi} className={`${styles.teamAgentPopMsg} chat-md`} dangerouslySetInnerHTML={{ __html: renderMarkdown(texts.length > 2000 ? texts.slice(0, 2000) + '\n\n...' : texts) }} />;
+                  }) : <div style={{ color: '#666', fontSize: 12 }}>No messages</div>}
+                </div>
+              );
+              return (
+                <Popover key={i} content={popContent} trigger="click" placement="rightTop" arrow={{ pointAtCenter: true }}
+                  overlayInnerStyle={{ background: '#1a1a1a', border: '1px solid #333', padding: 0, maxWidth: 800, maxHeight: '80vh', overflowY: 'auto' }}
+                  onOpenChange={(open) => this.setState({ activeAgentCard: open ? i : null })}
+                >
+                  <div className={`${styles.teamAgentCard} ${this.state.activeAgentCard === i ? styles.teamAgentCardActive : ''}`} style={{ borderLeftColor: '#eee', cursor: 'pointer' }}>
+                    <div className={styles.teamAgentCardHeader}>
+                      <div className={styles.teamAgentAvatar} style={{ background: nameToColor(ag.name) }} dangerouslySetInnerHTML={{ __html: getSvgAvatar('teammate') }} />
+                      <div className={styles.teamAgentName}>{ag.name}</div>
+                    </div>
+                    <div className={styles.teamAgentType}>{ag.type}</div>
+                    <div className={styles.teamAgentStatus} style={{ color: isDone ? '#52c41a' : '#faad14' }}>
+                      {isDone ? '✓ done' : '● working'} · {durStr}
+                    </div>
+                  </div>
+                </Popover>
+              );
+            })}
+          </div>
+          {/* Right: Content */}
+          <div className={styles.teamModalContent}>
+            {this.renderTeamGantt(teamAgents, teamTotalStart, teamTotalEnd, leadSegments)}
+            <div className={styles.teamModalBody} ref={this._teamModalBodyRef} onScroll={this.onTeamModalScroll}>
+              {entries.map((entry, i) => (
+                <div key={`tw-${i}`} data-timestamp={entry.timestamp}>
+                  {entry.type === 'user' && <ChatMessage role="user" text={entry.text} timestamp={entry.timestamp} userProfile={this.props.userProfile} modelInfo={modelInfo} requestIndex={entry.requestIndex} onViewRequest={this.props.onViewRequest} />}
+                  {entry.type === 'assistant' && <ChatMessage role="assistant" content={entry.content} timestamp={entry.timestamp} modelInfo={entry.modelInfo} collapseToolResults={collapseToolResults} expandThinking={expandThinking} toolResultMap={{}} askAnswerMap={{}} requestIndex={entry.requestIndex} onViewRequest={this.props.onViewRequest} />}
+                  {entry.type === 'sub-agent' && <ChatMessage role="sub-agent-chat" content={entry.content} toolResultMap={entry.toolResultMap} label={entry.label} isTeammate={entry.isTeammate} timestamp={entry.timestamp} collapseToolResults={collapseToolResults} expandThinking={expandThinking} requestIndex={entry.requestIndex} onViewRequest={this.props.onViewRequest} />}
+                  {entry.type === 'context' && <ChatMessage role="assistant" content={[{ type: 'text', text: entry.text }]} timestamp={entry.timestamp} modelInfo={modelInfo} collapseToolResults={collapseToolResults} expandThinking={expandThinking} toolResultMap={{}} askAnswerMap={{}} />}
+                  {entry.type === 'teammate-report' && (
+                    <div className={styles.teammateReportEntry}>
+                      <div className={styles.teammateReportHeader}>
+                        <div className={styles.teamAgentAvatar} style={{ background: entry.agentColor }} dangerouslySetInnerHTML={{ __html: getSvgAvatar('teammate') }} />
+                        <span className={styles.teammateReportName}>{entry.agentName}</span>
+                        <span className={styles.teammateReportSummary}>{entry.summary}</span>
+                      </div>
+                      <div className={`${styles.teammateReportBody} chat-md`} dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.content) }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+              {entries.length === 0 && <Empty description="No entries" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+            </div>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   render() {
     const { mainAgentSessions, cliMode, terminalVisible, onToggleTerminal } = this.props;
     const { allItems, visibleCount, loading, terminalWidth, lastResponseItems } = this.state;
@@ -1810,7 +2598,7 @@ class ChatView extends React.Component {
     );
 
     if (!cliMode) {
-      return (
+      return (<>
         <div className={styles.splitContainer}>
           <div className={styles.navSidebar}>
             <button
@@ -1822,15 +2610,17 @@ class ChatView extends React.Component {
                 <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
               </svg>
             </button>
+          {this.renderTeamButton()}
           </div>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {messageList}
           </div>
         </div>
-      );
+        {this.renderTeamModal()}
+      </>);
     }
 
-    return (
+    return (<>
       <div ref={this.splitContainerRef} className={styles.splitContainer}>
         <div className={styles.navSidebar}>
           <button
@@ -1863,6 +2653,7 @@ class ChatView extends React.Component {
               <path d="M759.53332137 326.35000897c0-48.26899766-39.4506231-87.33284994-87.87432908-86.6366625-46.95397689 0.69618746-85.08957923 39.14120645-85.39899588 86.09518335-0.23206249 40.68828971 27.53808201 74.87882971 65.13220519 84.47074592 10.82958281 2.78474987 18.41029078 12.37666607 18.64235327 23.51566553 0.38677082 21.11768647-3.40358317 44.40128953-17.24997834 63.81718442-22.20064476 31.17372767-62.42480948 42.46743545-97.93037026 52.44612248-22.43270724 6.26568719-38.75443563 7.89012462-53.14230994 9.28249954-20.42149901 2.01120825-39.76003975 3.94506233-63.89453858 17.79145747-5.10537475 2.93945818-10.13339535 6.18833303-14.85199928 9.74662453-4.09977063 3.09416652-9.90133285 0.15470833-9.90133286-4.95066641V302.60228095c0-9.43720788 5.26008307-18.17822829 13.69168683-22.3553531 28.69839444-14.23316598 48.42370599-43.93716454 48.19164353-78.20505872-0.38677082-48.57841433-41.15241468-87.71962076-89.730829-86.01782918C338.80402918 117.57112321 301.59667683 155.70672553 301.59667683 202.58334827c0 34.03583169 19.64795738 63.50776777 48.1916435 77.66357958 8.43160375 4.17712479 13.69168685 12.76343689 13.69168684 22.12329062v419.02750058c0 9.43720788-5.26008307 18.17822829-13.69168684 22.3553531-28.69839444 14.23316598-48.42370599 43.93716454-48.1916435 78.20505872 0.30941665 48.57841433 41.07506052 87.6422666 89.65347484 86.01782918C437.74000359 906.42887679 474.87000179 868.2159203 474.87000179 821.41665173c0-34.03583169-19.64795738-63.50776777-48.1916435-77.66357958-8.43160375-4.17712479-13.69168685-12.76343689-13.69168684-22.12329062v-14.85199926c0-32.48874844 15.39347842-63.27570528 42.00331048-81.91805854 2.39797906-1.70179159 4.95066642-3.32622901 7.50335379-4.79595812 14.92935344-8.58631209 25.91364457-9.66927037 44.09187287-11.4484161 15.62554091-1.54708326 35.04143581-3.48093734 61.65126786-10.90693699 39.06385228-10.98429114 92.51557887-25.91364457 124.84961898-71.39789238 18.56499911-26.06835292 27.38337367-58.01562219 26.37776956-95.14562041-0.15470833-5.33743724-0.54147915-10.67487447-1.08295828-16.16702004-0.85089578-8.27689543 2.70739569-16.24437421 9.12779121-21.50445729 19.57060322-15.78024923 32.02462345-39.99210223 32.02462345-67.14341343zM351.1033411 202.58334827c0-20.49885317 16.63114503-37.12999821 37.1299982-37.1299982s37.12999821 16.63114503 37.12999821 37.1299982-16.63114503 37.12999821-37.12999821 37.1299982-37.12999821-16.63114503-37.1299982-37.1299982z m74.25999641 618.83330346c0 20.49885317-16.63114503 37.12999821-37.12999821 37.1299982s-37.12999821-16.63114503-37.1299982-37.1299982 16.63114503-37.12999821 37.1299982-37.1299982 37.12999821 16.63114503 37.12999821 37.1299982z m247.53332139-457.93664456c-20.49885317 0-37.12999821-16.63114503-37.1299982-37.1299982s16.63114503-37.12999821 37.1299982-37.12999821 37.12999821 16.63114503 37.1299982 37.12999821-16.63114503 37.12999821-37.1299982 37.1299982z"/>
             </svg>
           </button>
+          {this.renderTeamButton()}
         </div>
         <div style={{ flex: 1, display: 'flex', minWidth: 0, position: 'relative' }} ref={this.innerSplitRef}>
           {/* 吸附预览框 */}
@@ -2115,7 +2906,8 @@ class ChatView extends React.Component {
           )}
         </div>
       </div>
-    );
+      {this.renderTeamModal()}
+    </>);
   }
 }
 

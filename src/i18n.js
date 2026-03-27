@@ -1517,6 +1517,26 @@ const i18nData = {
     "tr": "Dosya Gezgini",
     "uk": "Провідник файлів"
   },
+  "ui.teamSessions": {
+    "zh": "Team 会话",
+    "en": "Team Sessions",
+    "zh-TW": "Team 會話",
+    "ko": "Team 세션",
+    "ja": "Team セッション",
+    "de": "Team-Sitzungen",
+    "es": "Sesiones de Team",
+    "fr": "Sessions d'équipe",
+    "it": "Sessioni Team",
+    "da": "Team-sessioner",
+    "pl": "Sesje Team",
+    "ru": "Сессии команды",
+    "ar": "جلسات الفريق",
+    "no": "Team-økter",
+    "pt-BR": "Sessões de equipe",
+    "th": "เซสชัน Team",
+    "tr": "Takım oturumları",
+    "uk": "Сесії команди"
+  },
   "ui.gitChanges": {
     "zh": "Git 变更",
     "en": "Git Changes",

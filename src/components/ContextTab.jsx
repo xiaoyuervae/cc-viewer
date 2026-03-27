@@ -302,7 +302,7 @@ function TurnContent({ turn }) {
 // ── Accordion ─────────────────────────────────────────────────────────────────
 
 function AccordionSection({ sectionKey, title, items, historyItems = [], onSelect, onSelectById, selectedId, sidebarRef }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(sectionKey !== 'tools');
   const [historyOpen, setHistoryOpen] = useState(false);
   const totalCount = items.length + historyItems.length;
   const historyToggleId = `${sectionKey}__history_toggle`;
@@ -439,6 +439,19 @@ export default function ContextTab({ body, response }) {
 
   const accordionSections = [];
 
+  // Tools (collapsed by default, shown first to match API cache prefix order)
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    accordionSections.push({
+      key: 'tools',
+      title: t('ui.context.tools'),
+      items: body.tools.map((tool, i) => ({
+        id: `tool__${i}`,
+        label: tool?.name || `Tool ${i}`,
+        blocks: parseToolBlocks(tool),
+      })),
+    });
+  }
+
   // System prompt
   const systemBlocks = parseSystemBlocks(body.system);
   if (systemBlocks != null) {
@@ -469,19 +482,6 @@ export default function ContextTab({ body, response }) {
       title: t('ui.context.messages'),
       historyItems: historyTurns.length > 0 ? historyTurns : undefined,
       items: [currentTurn],
-    });
-  }
-
-  // Tools
-  if (Array.isArray(body.tools) && body.tools.length > 0) {
-    accordionSections.push({
-      key: 'tools',
-      title: t('ui.context.tools'),
-      items: body.tools.map((tool, i) => ({
-        id: `tool__${i}`,
-        label: tool?.name || `Tool ${i}`,
-        blocks: parseToolBlocks(tool),
-      })),
     });
   }
 

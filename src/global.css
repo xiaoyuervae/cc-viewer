@@ -100,6 +100,12 @@ body {
   background: #090909;
 }
 
+/* Popover arrow color */
+.ant-popover .ant-popover-arrow::before,
+.ant-popover .ant-popover-arrow::after {
+  background: #333;
+}
+
 /* Ant Design Typography font size override */
 .ant-typography {
   font-size: 12px;
