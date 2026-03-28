@@ -69,6 +69,11 @@ class DetailPanel extends React.Component {
   }
 
   scrollToCacheMsg(idx) {
+    // Auto-expand messages section if collapsed
+    if (this.state.cacheCollapsed.messages) {
+      this.setState(prev => ({ cacheCollapsed: { ...prev.cacheCollapsed, messages: false } }), () => this.scrollToCacheMsg(idx));
+      return;
+    }
     const el = this._cacheScrollEl;
     if (!el) return;
     const target = el.querySelector(`[data-msg-idx="${idx}"]`);
