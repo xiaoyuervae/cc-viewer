@@ -74,7 +74,7 @@ export default function ImageLightbox({ src, alt, onClose }) {
     e.preventDefault();
     e.stopPropagation();
     setZoom(prev => {
-      const next = clampZoom(prev * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+      const next = clampZoom(prev * (e.deltaY < 0 ? 1.06 : 1 / 1.06));
       const ratio = next / prev;
       setOffset(o => ({ x: o.x * ratio, y: o.y * ratio }));
       return next;

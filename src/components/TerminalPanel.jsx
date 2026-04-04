@@ -578,6 +578,10 @@ class TerminalPanel extends React.Component {
       const optimized = await this._downscaleForRetina(file);
       const path = await uploadFileAndGetPath(optimized);
       if (this.props.onFilePath) this.props.onFilePath(path);
+      // Notify other views/devices about the uploaded image
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'image-upload-notify', path, source: 'terminal' }));
+      }
       if (this.terminal) this.terminal.focus();
     } catch (err) {
       console.error('[CC Viewer] Clipboard image upload failed:', err);
@@ -668,6 +672,10 @@ class TerminalPanel extends React.Component {
     try {
       const path = await uploadFileAndGetPath(file);
       if (this.props.onFilePath) this.props.onFilePath(path);
+      // Notify other views/devices about the uploaded file
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'image-upload-notify', path, source: 'terminal' }));
+      }
       // refocus terminal after upload (skip on mobile to avoid system keyboard popup)
       if (!isMobile && this.terminal) this.terminal.focus();
     } catch (err) {

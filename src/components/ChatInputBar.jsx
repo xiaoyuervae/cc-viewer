@@ -1,11 +1,31 @@
 import React, { useState } from 'react';
 import { uploadFileAndGetPath } from './TerminalPanel';
+import { apiUrl } from '../utils/apiUrl';
 import { isMobile } from '../env';
 import { t } from '../i18n';
 import styles from './ChatInputBar.module.css';
 
-function ChatInputBar({ inputRef, inputEmpty, inputSuggestion, terminalVisible, onKeyDown, onChange, onSend, onSuggestionClick, onUploadPath, presetItems, onPresetSend, isStreaming, streamingFading }) {
+function ChatInputBar({ inputRef, inputEmpty, inputSuggestion, terminalVisible, onKeyDown, onChange, onSend, onSuggestionClick, onUploadPath, presetItems, onPresetSend, isStreaming, streamingFading, pendingImages, onRemovePendingImage }) {
   const [plusOpen, setPlusOpen] = useState(false);
+
+  const handlePaste = async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        try {
+          const file = item.getAsFile();
+          if (!file) return;
+          const path = await uploadFileAndGetPath(file);
+          onUploadPath?.(path);
+        } catch (err) {
+          console.error('[CC Viewer] Paste image upload failed:', err);
+        }
+        return;
+      }
+    }
+  };
 
   if (terminalVisible) {
     if (!inputSuggestion) return null;
@@ -51,6 +71,41 @@ function ChatInputBar({ inputRef, inputEmpty, inputSuggestion, terminalVisible, 
           </svg>
         )}
         <div className={styles.chatTextareaWrap}>
+          {pendingImages && pendingImages.length > 0 && (
+            <div className={styles.imagePreviewStrip}>
+              {pendingImages.map((img, i) => {
+                const fileName = img.path.split('/').pop() || img.path;
+                const isImage = /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(fileName);
+                return isImage ? (
+                  <div key={img.path} className={styles.imagePreviewItem}>
+                    <img
+                      src={apiUrl(`/api/file-raw?path=${encodeURIComponent(img.path)}`)}
+                      className={styles.imagePreviewThumb}
+                      alt={fileName}
+                    />
+                    <button
+                      className={styles.imagePreviewRemove}
+                      onClick={() => onRemovePendingImage?.(i)}
+                      title={t('ui.chatInput.removeImage')}
+                    >&times;</button>
+                  </div>
+                ) : (
+                  <div key={img.path} className={styles.filePreviewChip}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <span className={styles.filePreviewName}>{fileName}</span>
+                    <button
+                      className={styles.filePreviewClose}
+                      onClick={() => onRemovePendingImage?.(i)}
+                      title={t('ui.chatInput.removeImage')}
+                    >&times;</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <textarea
             ref={inputRef}
             className={styles.chatTextarea}
@@ -58,6 +113,7 @@ function ChatInputBar({ inputRef, inputEmpty, inputSuggestion, terminalVisible, 
             rows={1}
             onKeyDown={onKeyDown}
             onInput={onChange}
+            onPaste={handlePaste}
           />
           {inputSuggestion && inputEmpty && (
             <div className={styles.ghostText}>{inputSuggestion}</div>
@@ -131,9 +187,9 @@ function ChatInputBar({ inputRef, inputEmpty, inputSuggestion, terminalVisible, 
                 </>}
           </div>
           <button
-            className={`${styles.sendBtn} ${inputEmpty ? styles.sendBtnDisabled : ''}`}
+            className={`${styles.sendBtn} ${inputEmpty && !(pendingImages?.length) ? styles.sendBtnDisabled : ''}`}
             onClick={onSend}
-            disabled={inputEmpty}
+            disabled={inputEmpty && !(pendingImages?.length)}
             title={t('ui.chatInput.send')}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

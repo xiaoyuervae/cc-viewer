@@ -65,7 +65,11 @@ export default function ConceptHelp({ doc, zIndex }) {
 
   return (
     <>
-      <span className={styles.helpBtn} onClick={(e) => { e.stopPropagation(); loadDoc(); }}>?</span>
+      <span className={styles.helpBtn}
+        onClick={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); loadDoc(); }}
+        onMouseDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}
+        onPointerDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}
+      >?</span>
       <ConfigProvider theme={{ algorithm: theme.darkAlgorithm, token: { colorPrimary: '#1668dc', colorBgContainer: '#111', colorBgLayout: '#0a0a0a', colorBgElevated: '#1e1e1e', colorBorder: '#2a2a2a' } }}>
         <Modal
           title={title}

@@ -110,6 +110,7 @@ class ChatView extends React.Component {
       localAskAnswers: {}, // 提交后的本地答案映射，用于 Last Response 立即切换到非交互式
       pendingPermission: null, // { id, toolName, input } — active permission approval request
       pendingPlanApproval: null, // { id, input } — active ExitPlanMode approval in SDK mode
+      pendingImages: [], // [{ path, source }] — images uploaded/pasted, shown as previews in chat input
     };
     this._processedToolIds = new Set();
     this._projectDirCache = null; // 缓存项目目录绝对路径
@@ -306,17 +307,12 @@ class ChatView extends React.Component {
       clearTimeout(this._streamingFadeTimer);
       this.setState({ streamingFading: false });
     }
-    // Handle files dropped onto the app
+    // Handle files dropped onto the app — add to pendingImages, send at submit time
     if (this.props.pendingUploadPaths && this.props.pendingUploadPaths.length > 0
       && this.props.pendingUploadPaths !== prevProps.pendingUploadPaths) {
-      const paths = this.props.pendingUploadPaths.join(' ');
-      const textarea = this._inputRef.current;
-      if (textarea) {
-        textarea.value = (textarea.value ? textarea.value + ' ' : '') + paths;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        this.setState({ inputEmpty: false });
-      } else if (this._inputWs && this._inputWs.readyState === WebSocket.OPEN) {
-        this._inputWs.send(JSON.stringify({ type: 'input', data: paths }));
+      for (const p of this.props.pendingUploadPaths) {
+        const raw = p.replace(/^"|"$/g, '');
+        this._addPendingImage(raw, 'drop');
       }
       if (this.props.onUploadPathsConsumed) this.props.onUploadPathsConsumed();
     }
@@ -334,6 +330,7 @@ class ChatView extends React.Component {
       if (this.state.pendingInput) {
         this.setState({ pendingInput: null });
       }
+      this._clearPendingImages();
       this._updateSuggestion();
       this._checkToolFileChanges();
     } else if (prevProps.requests !== this.props.requests) {
@@ -554,6 +551,34 @@ class ChatView extends React.Component {
         if (el) el.scrollTop = el.scrollHeight;
       }
     });
+  };
+
+  _addPendingImage = (path, source) => {
+    if (!path) return;
+    this.setState(prev => {
+      if (prev.pendingImages.length >= 20) return null; // cap
+      if (prev.pendingImages.some(img => img.path === path)) return null; // dedup
+      return { pendingImages: [...prev.pendingImages, { path, source }] };
+    });
+  };
+
+  _removePendingImage = (index) => {
+    this.setState(prev => {
+      const img = prev.pendingImages[index];
+      if (!img) return null;
+      const next = prev.pendingImages.filter((_, i) => i !== index);
+      // Notify other clients to remove the same file
+      if (img.path && this._inputWs && this._inputWs.readyState === WebSocket.OPEN) {
+        this._inputWs.send(JSON.stringify({ type: 'image-remove-notify', path: img.path }));
+      }
+      return { pendingImages: next };
+    });
+  };
+
+  _clearPendingImages = () => {
+    if (this.state.pendingImages.length > 0) {
+      this.setState({ pendingImages: [] });
+    }
   };
 
   handleLoadMore = () => {
@@ -1208,6 +1233,21 @@ class ChatView extends React.Component {
           if (this.state.pendingPlanApproval?.id === msg.id) {
             this.setState({ pendingPlanApproval: null });
           }
+        } else if (msg.type === 'image-upload-notify') {
+          // 另一个视图/设备上传了图片，同步到本端 pendingImages
+          // 终端上传已直接注入 PTY，不加入 pending 避免其他设备双发
+          if (msg.source !== 'terminal') {
+            this._addPendingImage(msg.path, msg.source);
+          }
+        } else if (msg.type === 'image-remove-notify') {
+          // 另一端删除了预览中的文件，同步移除
+          if (msg.path) {
+            this.setState(prev => {
+              const next = prev.pendingImages.filter(img => img.path !== msg.path);
+              if (next.length === prev.pendingImages.length) return null;
+              return { pendingImages: next };
+            });
+          }
         }
       } catch {}
     };
@@ -1255,7 +1295,8 @@ class ChatView extends React.Component {
     let options = null;
 
     // Pattern 1: Numbered options — "Question?\n  ❯ 1. Option A\n    2. Option B"
-    const match1 = buf.match(/([^\n]*\?)\s*\n((?:\s*[❯>]?\s*\d+\.\s+[^\n]+\n?){2,})$/);
+    // Allows an optional trailing hint line (e.g. "Enter to confirm · Esc to cancel")
+    const match1 = buf.match(/([^\n]*\?)\s*\n((?:\s*[❯>]?\s*\d+\.\s+[^\n]+\n?){2,})(?:\n[^\d❯>\n][^\n]*)?$/);
     if (match1) {
       question = match1[1].trim();
       const optionLines = match1[2].match(/\s*([❯>])?\s*(\d+)\.\s+([^\n]+)/g);
@@ -1274,8 +1315,9 @@ class ChatView extends React.Component {
     // Pattern 2: Non-numbered cursor-based options (Ink Select) —
     // "Some prompt text\n  ❯ Allow once\n    Deny"
     // Question line may or may not end with "?"
+    // Allows an optional trailing hint line (e.g. "Enter to confirm · Esc to cancel")
     if (!options) {
-      const match2 = buf.match(/([^\n]+)\n((?:\s+[❯>]?\s+[^\n]+\n?){2,})$/);
+      const match2 = buf.match(/([^\n]+)\n((?:\s+[❯>]?\s+[^\n]+\n?){2,})(?:\n[^\s❯>\n][^\n]*)?$/);
       if (match2) {
         const candidateQ = match2[1].trim();
         const block = match2[2];
@@ -1849,7 +1891,10 @@ class ChatView extends React.Component {
   handleInputSend = () => {
     const textarea = this._inputRef.current;
     if (!textarea) return;
-    const text = textarea.value.trim();
+    const userText = textarea.value.trim();
+    // 拼接 pendingImages 路径到消息前面（发送时才注入，支持用户删除后不发）
+    const imagePaths = this.state.pendingImages.map(img => `"${img.path.replace(/"/g, '')}"`).join(' ');
+    const text = imagePaths ? (userText ? `${imagePaths} ${userText}` : imagePaths) : userText;
     if (!text) return;
     if (this._inputWs && this._inputWs.readyState === WebSocket.OPEN) {
       if (this.props.sdkMode) {
@@ -1866,7 +1911,8 @@ class ChatView extends React.Component {
       }
       textarea.value = '';
       textarea.style.height = 'auto';
-      this.setState({ inputEmpty: true, pendingInput: text, inputSuggestion: null }, () => this.scrollToBottom());
+      this._clearPendingImages();
+      this.setState({ inputEmpty: true, pendingInput: userText || imagePaths, inputSuggestion: null }, () => this.scrollToBottom());
     }
   };
 
@@ -1912,12 +1958,10 @@ class ChatView extends React.Component {
   };
 
   handleUploadPath = (path) => {
-    const quoted = `"${path}"`;
-    const textarea = this._inputRef.current;
-    if (textarea) {
-      textarea.value = (textarea.value ? textarea.value + ' ' : '') + quoted;
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      this.setState({ inputEmpty: false });
+    // 不插入 textarea，不立即注入 PTY — 仅添加到预览条，发送时再拼接路径
+    this._addPendingImage(path, 'chat');
+    if (this._inputWs && this._inputWs.readyState === WebSocket.OPEN) {
+      this._inputWs.send(JSON.stringify({ type: 'image-upload-notify', path, source: 'chat' }));
     }
   };
 
@@ -2628,6 +2672,8 @@ class ChatView extends React.Component {
               onPresetSend={this.handlePresetSend}
               isStreaming={this.props.isStreaming}
               streamingFading={this.state.streamingFading}
+              pendingImages={this.state.pendingImages}
+              onRemovePendingImage={this._removePendingImage}
             />
             </div>
           </div>
@@ -2663,6 +2709,8 @@ class ChatView extends React.Component {
                   if (this._inputWs && this._inputWs.readyState === WebSocket.OPEN) {
                     this._inputWs.send(JSON.stringify({ type: 'input', data: quoted }));
                   }
+                  // 不加入 pendingImages — 终端上传已直接注入 PTY，不需要在聊天预览条"pending"
+                  // 跨设备同步由 TerminalPanel 的 image-upload-notify WS 消息处理
                 }} />
               </div>
             </>

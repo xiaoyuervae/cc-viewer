@@ -3877,6 +3877,14 @@ const i18nData = {
     "tr": "Claude'a mesaj yazın...",
     "uk": "Введіть повідомлення для Claude..."
   },
+  "ui.chatInput.removeImage": {
+    "zh": "移除图片", "en": "Remove image", "zh-TW": "移除圖片",
+    "ko": "이미지 제거", "ja": "画像を削除", "de": "Bild entfernen",
+    "es": "Eliminar imagen", "fr": "Supprimer l'image", "it": "Rimuovi immagine",
+    "da": "Fjern billede", "pl": "Usuń obraz", "ru": "Удалить изображение",
+    "ar": "إزالة الصورة", "no": "Fjern bilde", "pt-BR": "Remover imagem",
+    "th": "ลบรูปภาพ", "tr": "Resmi kaldır", "uk": "Видалити зображення"
+  },
   "ui.chatInput.more": {
     "zh": "更多",
     "en": "More",

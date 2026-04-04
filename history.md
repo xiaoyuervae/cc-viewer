@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.97 (2026-04-04)
+
+- Feat: terminal-chat image awareness bridge — `pendingImages` state with preview strip (thumbnails for images, file chips for non-images)
+- Feat: chat textarea image paste support — clipboard image paste uploads and adds to preview
+- Feat: multi-device file upload/remove sync via WS `image-upload-notify` / `image-remove-notify`
+- Feat: deferred path injection — file paths not inserted into textarea, prepended at send time from `pendingImages`
+- Fix: PTY prompt detection — allow trailing hint lines (e.g. "Enter to confirm") in both numbered and cursor option patterns
+- Fix: ConceptHelp event isolation — triple stop propagation (click/mousedown/pointerdown) prevents parent handler triggers
+- Fix: ImageLightbox zoom sensitivity — scroll factor reduced from 15% to 6% per tick
+- Fix: Last Response divider — dashed line via `::before`/`::after` pseudo-elements
+- Fix: mobile image preview broken — use `apiUrl()` for LAN token authentication on thumbnail URLs
+- Fix: terminal upload skip `pendingImages` on receiving device to prevent double-send
+- Security: server-side path validation for `image-upload-notify`/`image-remove-notify` — reject `..` traversal, restrict to upload directories
+- Security: send-time path sanitization — strip `"` from image paths before quoting
+
 ## 1.6.96 (2026-04-04)
 
 - Feat: multi-device approval sync — broadcast `*-resolved` messages when permission/plan/ask is answered on one device

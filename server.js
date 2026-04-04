@@ -2706,6 +2706,19 @@ async function setupTerminalWebSocket(httpServer) {
                 console.error('[SDK] sendUserMessage error:', err.message);
               });
             }
+          } else if (msg.type === 'image-remove-notify' || msg.type === 'image-upload-notify') {
+            // Security: only allow paths within upload directories, reject traversal
+            const p = msg.path;
+            if (terminalWss && p && !p.includes('..') && (
+              p.startsWith('/tmp/cc-viewer-uploads/') || (p.includes('/cc-viewer/') && p.includes('/images/'))
+            )) {
+              const rmsg = msg.type === 'image-upload-notify'
+                ? JSON.stringify({ type: 'image-upload-notify', path: p, source: msg.source || 'unknown' })
+                : JSON.stringify({ type: 'image-remove-notify', path: p });
+              terminalWss.clients.forEach((c) => {
+                if (c !== ws && c.readyState === 1) try { c.send(rmsg); } catch {}
+              });
+            }
           } else if (msg.type === 'resize') {
             // 存储该客户端的尺寸
             clientSizes.set(ws, { cols: msg.cols, rows: msg.rows });
