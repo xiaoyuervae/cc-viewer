@@ -1188,6 +1188,26 @@ class ChatView extends React.Component {
           this.setState({ pendingPermission: { id: msg.id, toolName: msg.toolName, input: msg.input } });
         } else if (msg.type === 'perm-hook-timeout') {
           this.setState({ pendingPermission: null });
+        } else if (msg.type === 'perm-hook-resolved') {
+          // 另一端已审批，清除本端面板
+          if (this.state.pendingPermission?.id === msg.id) {
+            this.setState({ pendingPermission: null });
+          }
+        } else if (msg.type === 'ask-hook-resolved') {
+          // 另一端已回答 AskUserQuestion (PTY hook 模式)
+          this._askHookActive = false;
+          this._askHookQuestions = null;
+        } else if (msg.type === 'sdk-ask-resolved') {
+          // 另一端已回答 AskUserQuestion (SDK 模式)
+          if (this._sdkAskId === msg.id) {
+            this._askHookActive = false;
+            this._askHookQuestions = null;
+            this._sdkAskId = null;
+          }
+        } else if (msg.type === 'sdk-plan-resolved') {
+          if (this.state.pendingPlanApproval?.id === msg.id) {
+            this.setState({ pendingPlanApproval: null });
+          }
         }
       } catch {}
     };
@@ -1536,6 +1556,8 @@ class ChatView extends React.Component {
 
     // SDK 模式：直接通过 WS 发送结构化答案，无需 hook bridge 或 PTY
     if (this.props.sdkMode) {
+      const resolvedId = askId || this._sdkAskId;
+      if (!resolvedId) return; // 已被其他设备回答，忽略重复提交
       const ws = this._inputWs;
       if (ws && ws.readyState === WebSocket.OPEN) {
         // 构造 answers 对象: { questionText: selectedLabel }
@@ -1553,7 +1575,7 @@ class ChatView extends React.Component {
             sdkAnswers[q.question] = (q.options || [])[answer.optionIndex]?.label || '';
           }
         }
-        ws.send(JSON.stringify({ type: 'sdk-ask-answer', id: askId || this._sdkAskId, answers: sdkAnswers }));
+        ws.send(JSON.stringify({ type: 'sdk-ask-answer', id: resolvedId, answers: sdkAnswers }));
         this._sdkAskId = null;
       }
       return;

@@ -2630,10 +2630,12 @@ async function setupTerminalWebSocket(httpServer) {
             }
           } else if (msg.type === 'ask-hook-answer') {
             // Client answered AskUserQuestion via hook bridge
+            let askAnswered = false;
             if (pendingAskHook) {
               const { res: hookRes, timer } = pendingAskHook;
               clearTimeout(timer);
               pendingAskHook = null;
+              askAnswered = true;
               try {
                 if (!hookRes.headersSent) {
                   hookRes.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2641,14 +2643,24 @@ async function setupTerminalWebSocket(httpServer) {
                 }
               } catch {}
             }
+            // Broadcast resolved to other clients so they clear their ask panel
+            if (askAnswered && terminalWss) {
+              const rmsg = JSON.stringify({ type: 'ask-hook-resolved' });
+              terminalWss.clients.forEach((c) => {
+                if (c !== ws && c.readyState === 1) try { c.send(rmsg); } catch {}
+              });
+            }
           } else if (msg.type === 'perm-hook-answer') {
             // Permission approval — SDK mode (canUseTool) or PTY mode (hook bridge)
-            if (isSdkMode && _sdkResolveApproval) {
+            let permAnswered = false;
+            if (isSdkMode && _sdkResolveApproval && msg.id) {
               _sdkResolveApproval(msg.id, msg.allowSession ? { decision: msg.decision || 'allow', allowSession: true } : (msg.decision || 'deny'));
+              permAnswered = true;
             } else if (pendingPermHook && msg.id && msg.id === pendingPermHook.id) {
               const { res: hookRes, timer } = pendingPermHook;
               clearTimeout(timer);
               pendingPermHook = null;
+              permAnswered = true;
               try {
                 if (!hookRes.headersSent) {
                   hookRes.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2656,15 +2668,36 @@ async function setupTerminalWebSocket(httpServer) {
                 }
               } catch {}
             }
+            // Broadcast resolved only when an answer was actually processed
+            if (permAnswered && terminalWss) {
+              const rmsg = JSON.stringify({ type: 'perm-hook-resolved', id: msg.id });
+              terminalWss.clients.forEach((c) => {
+                if (c !== ws && c.readyState === 1) try { c.send(rmsg); } catch {}
+              });
+            }
           } else if (msg.type === 'sdk-ask-answer') {
             // AskUserQuestion answer in SDK mode — resolve canUseTool Promise
-            if (_sdkResolveApproval) {
+            if (_sdkResolveApproval && msg.id) {
               _sdkResolveApproval(msg.id, msg.answers);
+            }
+            // Broadcast resolved to other clients
+            if (msg.id && terminalWss) {
+              const rmsg = JSON.stringify({ type: 'sdk-ask-resolved', id: msg.id });
+              terminalWss.clients.forEach((c) => {
+                if (c !== ws && c.readyState === 1) try { c.send(rmsg); } catch {}
+              });
             }
           } else if (msg.type === 'sdk-plan-answer') {
             // Plan approval in SDK mode
             if (_sdkResolveApproval) {
               _sdkResolveApproval(msg.id, { approve: msg.approve !== false, feedback: msg.feedback || '' });
+            }
+            // Broadcast resolved to other clients
+            if (terminalWss) {
+              const rmsg = JSON.stringify({ type: 'sdk-plan-resolved', id: msg.id });
+              terminalWss.clients.forEach((c) => {
+                if (c !== ws && c.readyState === 1) try { c.send(rmsg); } catch {}
+              });
             }
           } else if (msg.type === 'sdk-user-message') {
             // User message in SDK mode — relay to sdk-manager

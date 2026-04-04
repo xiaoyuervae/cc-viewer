@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.96 (2026-04-04)
+
+- Feat: multi-device approval sync — broadcast `*-resolved` messages when permission/plan/ask is answered on one device
+- Feat: PTY ask-hook cross-device sync — add `ask-hook-resolved` broadcast and handler
+- Fix: conditional broadcast — only send `perm-hook-resolved` when an answer was actually processed
+- Fix: SDK ask submit null guard — prevent sending `id: null` when another device already answered
+- Fix: SDK perm-hook path `msg.id` guard for robustness
+
 ## 1.6.95 (2026-04-04)
 
 - Fix: Last Response rendering vs stick-to-bottom race — lock scroll handler during startRender DOM transition
