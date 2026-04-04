@@ -107,7 +107,8 @@ export function appendToolResultMap(state, messages, startIndex) {
           const resultText = extractToolResultText(block);
           const isError = !!block.is_error;
           const isPermissionDenied = isError && /doesn't want to proceed|Permission.*denied|rejected.*tool use|interrupted by user for tool use/i.test(resultText);
-          toolResultMap[block.tool_use_id] = { label, toolName, toolInput, resultText, isError, isPermissionDenied };
+          const isUltraplan = isPermissionDenied && /ultraplan/i.test(resultText);
+          toolResultMap[block.tool_use_id] = { label, toolName, toolInput, resultText, isError, isPermissionDenied, isUltraplan };
           if (matchedTool && matchedTool.name === 'Read' && matchedTool.input?.file_path) {
             readContentMap[matchedTool.input.file_path] = resultText;
             // _fileState 更新（行号解析）

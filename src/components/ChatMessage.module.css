@@ -669,6 +669,12 @@
   border-color: #ef4444;
 }
 
+.ultraplanBadge {
+  color: #7dd3fc;
+  font-size: 12px;
+  margin: 4px 0;
+}
+
 .dangerApprovalHeader {
   display: flex;
   align-items: center;

@@ -2451,8 +2451,8 @@ class ChatView extends React.Component {
         )}
         {isMobile ? (
           this._virtuosoHeader = loadMoreBtn,
-          this._virtuosoFooter = <>{(this.props.isStreaming || this.state.streamingFading) && (
-            <div className={styles.streamingSpinnerWrap} style={this.state.streamingFading ? { opacity: 0 } : undefined}>
+          this._virtuosoFooter = <>
+            <div className={`${styles.streamingSpinnerWrap}${!this.props.isStreaming ? ' ' + styles.streamingSpinnerHidden : ''}`}>
               <svg width="20" height="20" viewBox="0 0 20 20">
                 <defs>
                   <linearGradient id="ccv-spinnerGrad" x1="0" y1="0" x2="1" y2="1">
@@ -2468,7 +2468,7 @@ class ChatView extends React.Component {
                 </circle>
               </svg>
             </div>
-          )}{filteredLastResponseItems}{pendingBubble}</>,
+          {filteredLastResponseItems}{pendingBubble}</>,
           <Virtuoso
             ref={this.virtuosoRef}
             className={styles.mobileVirtuoso}
@@ -2515,24 +2515,22 @@ class ChatView extends React.Component {
                 ? <div key={item.key + '-anchor'} ref={this._scrollTargetRef}>{el}</div>
                 : el;
             })}
-            {(this.props.isStreaming || this.state.streamingFading) && (
-              <div className={styles.streamingSpinnerWrap} style={this.state.streamingFading ? { opacity: 0 } : undefined}>
-                <svg width="20" height="20" viewBox="0 0 20 20">
-                  <defs>
-                    <linearGradient id="ccv-spinnerGrad-desktop" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="white" stopOpacity="1" />
-                      <stop offset="100%" stopColor="white" stopOpacity="0.1" />
-                    </linearGradient>
-                  </defs>
-                  <circle cx="10" cy="10" r="7.5" fill="none" strokeWidth="2"
-                    stroke="url(#ccv-spinnerGrad-desktop)" strokeLinecap="round"
-                    pathLength="100" strokeDasharray="75 25">
-                    <animateTransform attributeName="transform" type="rotate"
-                      from="0 10 10" to="360 10 10" dur="0.8s" repeatCount="indefinite" />
-                  </circle>
-                </svg>
-              </div>
-            )}
+            <div className={`${styles.streamingSpinnerWrap}${!this.props.isStreaming ? ' ' + styles.streamingSpinnerHidden : ''}`}>
+              <svg width="20" height="20" viewBox="0 0 20 20">
+                <defs>
+                  <linearGradient id="ccv-spinnerGrad-desktop" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="white" stopOpacity="1" />
+                    <stop offset="100%" stopColor="white" stopOpacity="0.1" />
+                  </linearGradient>
+                </defs>
+                <circle cx="10" cy="10" r="7.5" fill="none" strokeWidth="2"
+                  stroke="url(#ccv-spinnerGrad-desktop)" strokeLinecap="round"
+                  pathLength="100" strokeDasharray="75 25">
+                  <animateTransform attributeName="transform" type="rotate"
+                    from="0 10 10" to="360 10 10" dur="0.8s" repeatCount="indefinite" />
+                </circle>
+              </svg>
+            </div>
             {filteredLastResponseItems && (
               targetIdx != null && targetIdx >= visible.length
                 ? <div key="last-resp-anchor" ref={this._scrollTargetRef}>{filteredLastResponseItems}</div>

@@ -840,12 +840,16 @@ class ChatMessage extends React.Component {
           if (tr.isPermissionDenied) {
             innerContent.push(
               <React.Fragment key={`tr-denied-${tu.id}`}>
-                <div className={`${styles.dangerApprovalBox} ${styles.dangerApprovalBoxDenied}`}>
-                  <span className={styles.dangerDeniedBadge}>✗ {t('ui.dangerDenied')}</span>
-                  {tr.resultText && (
-                    <div className={styles.dangerDeniedDetail}>{tr.resultText}</div>
-                  )}
-                </div>
+                {tr.isUltraplan ? (
+                  <div className={styles.ultraplanBadge}>◇ Ultraplan</div>
+                ) : (
+                  <div className={`${styles.dangerApprovalBox} ${styles.dangerApprovalBoxDenied}`}>
+                    <span className={styles.dangerDeniedBadge}>✗ {t('ui.dangerDenied')}</span>
+                    {tr.resultText && (
+                      <div className={styles.dangerDeniedDetail}>{tr.resultText}</div>
+                    )}
+                  </div>
+                )}
               </React.Fragment>
             );
           }
@@ -853,12 +857,16 @@ class ChatMessage extends React.Component {
           if (tr.isPermissionDenied) {
             innerContent.push(
               <React.Fragment key={`tr-denied-${tu.id}`}>
-                <div className={`${styles.dangerApprovalBox} ${styles.dangerApprovalBoxDenied}`}>
-                  <span className={styles.dangerDeniedBadge}>✗ {t('ui.dangerDenied')}</span>
-                  {tr.resultText && (
-                    <div className={styles.dangerDeniedDetail}>{tr.resultText}</div>
-                  )}
-                </div>
+                {tr.isUltraplan ? (
+                  <div className={styles.ultraplanBadge}>◇ Ultraplan</div>
+                ) : (
+                  <div className={`${styles.dangerApprovalBox} ${styles.dangerApprovalBoxDenied}`}>
+                    <span className={styles.dangerDeniedBadge}>✗ {t('ui.dangerDenied')}</span>
+                    {tr.resultText && (
+                      <div className={styles.dangerDeniedDetail}>{tr.resultText}</div>
+                    )}
+                  </div>
+                )}
               </React.Fragment>
             );
           } else {
