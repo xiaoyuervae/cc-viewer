@@ -69,6 +69,11 @@ export default class AskQuestionForm extends React.Component {
 
     return (
       <div className={styles.askQuestionInteractive}>
+        <svg className={`${styles.borderSvg} ${styles.borderSvgInset}`} preserveAspectRatio="none">
+          <rect x="0" y="0" width="100%" height="100%" rx="6" ry="6"
+            fill="none" stroke="#1668dc" strokeWidth="1" strokeDasharray="6 4"
+            className={styles.borderRect} />
+        </svg>
         {questions.map((q, qi) => {
           const isMulti = q.multiSelect;
           const hasPreview = !isMulti && q.options?.some(o => o.preview);

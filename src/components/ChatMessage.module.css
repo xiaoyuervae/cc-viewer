@@ -149,6 +149,10 @@
   overflow: visible;
 }
 
+.borderSvgInset {
+  overflow: hidden;
+}
+
 .borderSvgFading {
   opacity: 0;
   transition: opacity 5s ease-out;
@@ -512,12 +516,18 @@
 /* === Plan 模式状态指示 === */
 
 .planModeBox {
+  position: relative;
   background: #0d1117;
   border: 1px solid #1668dc;
   border-radius: 6px;
   padding: 8px 12px;
   margin: 6px 0;
   font-size: 12px;
+}
+
+.planModeBox.planStatusPending {
+  border: none;
+  box-shadow: 0 0 12px rgba(22, 104, 220, 0.15);
 }
 
 .planModeLabel {
@@ -833,12 +843,18 @@
 /* === AskUserQuestion 交互模式 === */
 
 .askQuestionInteractive {
+  position: relative;
   background: #0d1117;
-  border: 1px solid #1668dc;
+  border: none;
   border-radius: 6px;
   padding: 8px 12px;
   margin: 6px 0;
   font-size: 12px;
+  box-shadow: 0 0 12px rgba(22, 104, 220, 0.15);
+}
+
+.askQuestionInteractive .optionDesc {
+  color: #165bbe;
 }
 
 .askRadioGroup {

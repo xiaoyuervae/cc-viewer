@@ -457,6 +457,13 @@ class ChatMessage extends React.Component {
         : approval.status === 'rejected' ? 'ui.planRejected' : 'ui.planPending';
       return (
         <div key={tu.id} className={`${styles.planModeBox} ${statusClass}`}>
+          {isInteractive && (
+            <svg className={`${styles.borderSvg} ${styles.borderSvgInset}`} preserveAspectRatio="none">
+              <rect x="0" y="0" width="100%" height="100%" rx="6" ry="6"
+                fill="none" stroke="#1668dc" strokeWidth="1" strokeDasharray="6 4"
+                className={styles.borderRect} />
+            </svg>
+          )}
           <div className={styles.planModeHeader}>
             <span className={styles.planModeLabel}>{t('ui.exitPlanMode')}</span>
             {!isInteractive && (

@@ -1,8 +1,42 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect, useCallback } from 'react';
 import { t } from '../i18n';
 import styles from './ToolApprovalPanel.module.css';
 
 function ToolApprovalPanel({ toolName, toolInput, requestId, onAllow, onAllowSession, onDeny, visible, global: isGlobal }) {
+  const panelRef = useRef(null);
+  const allowRef = useRef(null);
+  const prevFocusRef = useRef(null);
+
+  useEffect(() => {
+    if (visible) {
+      prevFocusRef.current = document.activeElement;
+      requestAnimationFrame(() => allowRef.current?.focus());
+    }
+    return () => {
+      if (prevFocusRef.current && typeof prevFocusRef.current.focus === 'function') {
+        prevFocusRef.current.focus();
+        prevFocusRef.current = null;
+      }
+    };
+  }, [visible]);
+
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Escape') {
+      onDeny(requestId);
+      return;
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const buttons = panelRef.current?.querySelectorAll('button');
+      if (!buttons?.length) return;
+      const arr = Array.from(buttons);
+      const idx = arr.indexOf(document.activeElement);
+      const next = e.shiftKey
+        ? (idx <= 0 ? arr.length - 1 : idx - 1)
+        : (idx >= arr.length - 1 ? 0 : idx + 1);
+      arr[next].focus();
+    }
+  }, [onDeny, requestId]);
   const displayText = useMemo(() => {
     if (!toolInput) return '';
     switch (toolName) {
@@ -33,7 +67,12 @@ function ToolApprovalPanel({ toolName, toolInput, requestId, onAllow, onAllowSes
   if (!visible) return null;
 
   return (
-    <div className={isGlobal ? styles.panelGlobal : styles.panel}>
+    <div ref={panelRef} className={isGlobal ? styles.panelGlobal : styles.panel} onKeyDown={handleKeyDown}>
+      <svg className={`${styles.borderSvg} ${styles.borderSvgInset}`} preserveAspectRatio="none">
+        <rect x="0" y="0" width="100%" height="100%" rx="12" ry="12"
+          fill="none" stroke="#f59e0b" strokeWidth="1" strokeDasharray="6 4"
+          className={styles.borderRect} />
+      </svg>
       <div className={styles.header}>
         <span className={styles.toolName}>{toolName}</span>
         <span className={styles.label}>{t('ui.permission.approvalRequired')}</span>
@@ -51,7 +90,7 @@ function ToolApprovalPanel({ toolName, toolInput, requestId, onAllow, onAllowSes
             {t('ui.permission.allowSession')}
           </button>
         )}
-        <button className={styles.allowBtn} onClick={() => onAllow(requestId)}>
+        <button ref={allowRef} className={styles.allowBtn} onClick={() => onAllow(requestId)}>
           {t('ui.permission.allow')}
         </button>
       </div>

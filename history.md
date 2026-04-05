@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.104 (2026-04-05)
+
+- Feat: animated dashed border on ToolApprovalPanel (yellow), AskUserQuestion (blue), Plan approval (blue)
+- Feat: ToolApprovalPanel keyboard support — auto-focus Allow button, Tab/Shift+Tab cycle, Escape to deny
+- Feat: focus restore — approval panel returns focus to previous element on close
+- Style: focus-visible outline for approval buttons, optionDesc color in interactive questions
+
 ## 1.6.103 (2026-04-05)
 
 - Feat: terminal pending file tag strip — uploaded files shown as tags/thumbnails above toolbar, multi-device sync
