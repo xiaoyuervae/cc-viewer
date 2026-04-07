@@ -28,6 +28,7 @@ import { t } from '../i18n';
 import { apiUrl } from '../utils/apiUrl';
 import { BUILTIN_PRESETS } from '../utils/builtinPresets';
 import defaultAvatarUrl from '../img/default-avatar.svg';
+import loadingPetUrl from '../img/loading-pet.gif';
 import styles from './ChatView.module.css';
 
 const { Text } = Typography;
@@ -2457,6 +2458,7 @@ class ChatView extends React.Component {
 
     const stickyBtn = !stickyBottom ? (
       <button className={styles.stickyBottomBtn} onClick={this.handleStickToBottom}>
+        {this.props.isStreaming && <img src={loadingPetUrl} className={styles.loadingPet} alt="" />}
         <span>{t('ui.stickyBottom')}</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="6 9 12 15 18 9" />

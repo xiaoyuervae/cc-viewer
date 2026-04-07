@@ -124,7 +124,7 @@ function TeamGantt({ teamAgents, teamTotalStart, teamTotalEnd, leadSegments, gan
             <div className={styles.teamGanttTrack}>
               {leadSegments && leadSegments.map((seg, i) => {
                 const bgColor = seg.label === 'thinking' ? 'var(--color-code-purple)' : seg.label === 'report-received' ? 'var(--color-success)' : 'var(--color-primary)';
-                const op = seg.label === 'idle' ? 0.15 : seg.label === 'text' ? 0.5 : seg.label === 'thinking' ? 0.4 : seg.label === 'report-received' ? 0.6 : 0.7;
+                const op = seg.label === 'idle' ? 0.25 : seg.label === 'text' ? 0.5 : seg.label === 'thinking' ? 0.4 : seg.label === 'report-received' ? 0.6 : 0.7;
                 return <div key={`b${i}`} className={styles.teamGanttBar} title={seg.label} style={{
                   left: pct(seg.start) + '%', width: widthPct(seg.start, seg.end) + '%',
                   background: bgColor, opacity: op,
@@ -148,7 +148,7 @@ function TeamGantt({ teamAgents, teamTotalStart, teamTotalEnd, leadSegments, gan
                   return <div key={`b${si}`} className={styles.teamGanttBar} title={seg.label} style={{
                     left: pct(seg.start) + '%',
                     width: widthPct(seg.start, seg.end) + '%',
-                    background: '#eee', opacity: op,
+                    background: 'var(--text-tertiary)', opacity: op,
                   }} />;
                 })}
                 {ag.events.filter(ev => !ev.label.startsWith('tool:')).map((ev, ei) => {

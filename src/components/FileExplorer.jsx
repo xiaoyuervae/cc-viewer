@@ -331,7 +331,7 @@ function TreeNode({ item, path, depth, onFileClick, expandedPaths, onToggleExpan
         });
         break;
     }
-  }, [childPath, item.name, isDir, startEditing, onFileRenamed]);
+  }, [childPath, item.name, isDir, startEditing, onFileRenamed, onAttachToChat]);
 
   const treeItemDiv = (
     <div

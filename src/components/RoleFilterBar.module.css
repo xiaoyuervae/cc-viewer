@@ -1,8 +1,10 @@
 .roleFilterBar {
   display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  background: var(--bg-elevated);
+  padding: 0 12px;
+  height: 38px;
+  background: var(--bg-base-pure);
   border-bottom: 1px solid var(--border-secondary);
   overflow-x: auto;
   flex-shrink: 0;

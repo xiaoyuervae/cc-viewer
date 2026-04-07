@@ -493,7 +493,7 @@ async function handleRequest(req, res) {
     req.on('data', chunk => { body += chunk; if (body.length > MAX_POST_BODY) req.destroy(); });
     req.on('end', async () => {
       try {
-        const { path: wsPath } = JSON.parse(body);
+        const { path: wsPath, extraArgs: launchExtraArgs } = JSON.parse(body);
         if (!wsPath || !existsSync(wsPath) || !statSync(wsPath).isDirectory()) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid directory path' }));
@@ -518,7 +518,8 @@ async function handleRequest(req, res) {
         const proxyPort = process.env.CCV_PROXY_PORT;
         if (proxyPort) {
           const { spawnClaude } = await import('./pty-manager.js');
-          await spawnClaude(parseInt(proxyPort), wsPath, _workspaceClaudeArgs, _workspaceClaudePath, _workspaceIsNpmVersion, actualPort);
+          const mergedArgs = [..._workspaceClaudeArgs, ...(Array.isArray(launchExtraArgs) ? launchExtraArgs : [])];
+          await spawnClaude(parseInt(proxyPort), wsPath, mergedArgs, _workspaceClaudePath, _workspaceIsNpmVersion, actualPort);
         }
 
         _workspaceLaunched = true;

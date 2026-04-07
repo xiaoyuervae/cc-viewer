@@ -104,14 +104,14 @@ function DirBrowser({ open, onClose, onSelect }) {
             <div
               key={dir.path}
               className={styles.dirItem}
-              onMouseEnter={e => e.currentTarget.style.background = '#1e1e1e'}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-elevated)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
               <div
                 className={styles.dirItemInner}
                 onClick={() => browse(dir.path)}
               >
-                <FolderOutlined style={{ color: dir.hasGit ? '#1668dc' : '#666', fontSize: 16, flexShrink: 0 }} />
+                <FolderOutlined style={{ color: dir.hasGit ? 'var(--color-primary)' : 'var(--text-muted)', fontSize: 16, flexShrink: 0 }} />
                 <Text className={styles.dirItemName}>
                   {dir.name}
                 </Text>
@@ -205,12 +205,15 @@ export default function WorkspaceList({ onLaunch }) {
       .catch(() => {});
   };
 
-  const handleLaunch = (workspace) => {
+  const handleLaunch = (workspace, dangerousMode = false) => {
     setLaunching(workspace.id);
+    const extraArgs = [];
+    if (dangerousMode) extraArgs.push('--dangerously-skip-permissions');
+    if (workspace.logCount > 0) extraArgs.push('-c');
     fetch(apiUrl('/api/workspaces/launch'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: workspace.path }),
+      body: JSON.stringify({ path: workspace.path, extraArgs }),
     })
       .then(res => res.json())
       .then(data => {
@@ -267,7 +270,7 @@ export default function WorkspaceList({ onLaunch }) {
                 size="small"
                 className={styles.card}
                 hoverable
-                onClick={() => handleLaunch(item)}
+                onClick={() => handleLaunch(item, false)}
               >
                 <div className={styles.cardRow}>
                   <div className={styles.cardLeft}>
@@ -287,9 +290,16 @@ export default function WorkspaceList({ onLaunch }) {
                       type="primary"
                       icon={<RocketOutlined />}
                       loading={launching === item.id}
-                      onClick={(e) => { e.stopPropagation(); handleLaunch(item); }}
+                      onClick={(e) => { e.stopPropagation(); handleLaunch(item, false); }}
                     >
-                      {t('ui.workspaces.open')}
+                      ccv{item.logCount > 0 ? ' -c' : ''}
+                    </Button>
+                    <Button
+                      icon={<RocketOutlined />}
+                      loading={launching === item.id}
+                      onClick={(e) => { e.stopPropagation(); handleLaunch(item, true); }}
+                    >
+                      ccv --d{item.logCount > 0 ? ' -c' : ''}
                     </Button>
                     <Popconfirm
                       title={t('ui.workspaces.confirmRemove')}

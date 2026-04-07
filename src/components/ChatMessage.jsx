@@ -569,7 +569,7 @@ class ChatMessage extends React.Component {
     const items = keys.map(k => {
       const v = inp[k];
       const vs = typeof v === 'string' ? v : JSON.stringify(v);
-      const display = (tu.name === 'Agent' || tu.name === 'TaskCreate' || vs.length <= 200) ? vs : vs.substring(0, 200) + '...';
+      const display = (tu.name === 'Agent' || tu.name === 'TaskCreate' || tu.name === 'TaskUpdate' || tu.name === 'SendMessage' || vs.length <= 200) ? vs : vs.substring(0, 200) + '...';
       return (
         <div key={k} className={styles.kvItem}>
           <span className={styles.kvKey}>{k}: </span>

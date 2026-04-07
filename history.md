@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.6.117 (2026-04-07)
+
+- Feat: Electron desktop app support — workspace mode with dual launch buttons (ccv / ccv --d)
+- Feat: workspace launch auto-adds `-c` flag when project has existing logs
+- Feat: server `/api/workspaces/launch` accepts `extraArgs` for Claude CLI flags
+- Feat: loading pet animation (pixel art gif) on sticky-bottom button when streaming
+- Fix: workspace mode uses themeConfig (supports 耀石黑/雪山白) instead of hardcoded dark
+- Fix: workspace terminal panel hidden by default after launch
+- Fix: FileExplorer header and RoleFilterBar height aligned to 38px
+- Fix: RoleFilterBar background → var(--bg-base-pure) for light mode
+- Fix: WorkspaceList DirBrowser hardcoded colors → CSS variables
+- Fix: gantt chart idle opacity 0.15 → 0.25, agent bar color → var(--text-tertiary)
+- Fix: useCallback dependency array: added onAttachToChat in FileExplorer
+- Fix: SendMessage/TaskUpdate tool detail no longer truncated at 200 chars
+- UI: theme names updated to 耀石黑/雪山白 in all 18 languages
+- Chore: removed orphaned i18n key ui.workspaces.open
+
 ## 1.6.116 (2026-04-07)
 
 - Feat: file explorer right-click "Attach to chat" — add file as attachment to chat input

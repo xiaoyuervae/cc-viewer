@@ -1120,6 +1120,7 @@ class AppBase extends React.Component {
       projectName,
       viewMode: 'chat',
       cliMode: true,
+      terminalVisible: false,
     });
   };
 
@@ -1629,18 +1630,7 @@ class AppBase extends React.Component {
   /** 工作区选择器渲染（PC/Mobile 共用） */
   renderWorkspaceMode() {
     return (
-      <ConfigProvider
-        theme={{
-          algorithm: theme.darkAlgorithm,
-          token: {
-            colorPrimary: '#1668dc',
-            colorBgContainer: '#111',
-            colorBgLayout: '#0a0a0a',
-            colorBgElevated: '#1e1e1e',
-            colorBorder: '#2a2a2a',
-          },
-        }}
-      >
+      <ConfigProvider theme={this.themeConfig}>
         <WorkspaceList onLaunch={this.handleWorkspaceLaunch} />
       </ConfigProvider>
     );

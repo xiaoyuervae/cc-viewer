@@ -98,8 +98,7 @@
   align-items: center;
   gap: 2px;
   padding: 8px 18px;
-  height: 60px;
-  justify-content: center;
+  justify-content: flex-end;
   border-radius: 0;
   border: none;
   background: none;
@@ -117,6 +116,12 @@
   border-radius: 10px;
 }
 
+.loadingPet {
+  width: 48px;
+  height: 48px;
+  image-rendering: pixelated;
+}
+
 .stickyBottomBtn:hover {
   color: var(--text-white);
   background: none;
@@ -128,7 +133,6 @@
     left: 0;
     gap: 4px;
     padding: 16px 18px;
-    height: 120px;
     font-size: 24px;
   }
   .stickyBottomBtn span {

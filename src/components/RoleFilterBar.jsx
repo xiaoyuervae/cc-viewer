@@ -2,11 +2,11 @@ import React from 'react';
 import { getSvgAvatar } from '../utils/helpers';
 import styles from './RoleFilterBar.module.css';
 
-function RoleFilterBar({ roles, selectedRoles, onToggle }) {
+function RoleFilterBar({ roles, selectedRoles, onToggle, style }) {
   if (!roles || roles.length === 0) return null;
 
   return (
-    <div className={styles.roleFilterBar}>
+    <div className={styles.roleFilterBar} style={style}>
       {roles.map(r => {
         const selected = selectedRoles.has(r.key);
         return (
